@@ -895,36 +895,37 @@ let tasaActual = 1;
             document.getElementById('modal-confirmar-pago').classList.remove('opacity-0', 'pointer-events-none');
         }
 
-        // Ejecuta la lógica matemática tras presionar "Sí, Pagar"
+     // Ejecuta la lógica tras presionar "Sí, Pagar" conectando con Vercel
         window.ejecutarPagoDeuda = async function() {
             if(!deudaPendienteTemp) return;
             
             document.getElementById('modal-confirmar-pago').classList.add('opacity-0', 'pointer-events-none');
             showLoader(true);
             
-            const montoPagar = Number(deudaPendienteTemp.monto);
-            const adminGanancia = deudaPendienteTemp.original * 0.15;
-            
-            // Transacción atómica: Restar saldo al usuario
-            await runTransaction(ref(db, `users/${usuarioActual.phone}/balance`), (balanceActual) => {
-                return (balanceActual || 0) - montoPagar;
-            });
+            try {
+                const response = await fetch('/api/pagar-deuda', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        usuarioPhone: usuarioActual.phone,
+                        pagoId: deudaPendienteTemp.id
+                    })
+                });
 
-            // Transacción atómica: Sumar ganancia al administrador
-            await runTransaction(ref(db, 'admin/profit'), (gananciaActual) => {
-                return (gananciaActual || 0) + adminGanancia;
-            });
+                const data = await response.json();
+                showLoader(false);
 
-            // Actualizar solo el estatus del pago
-            await update(ref(db), {
-                [`pending_payments/${deudaPendienteTemp.id}/status`]: 'pagado'
-            });
-            
-            deudaPendienteTemp = null;
-            showLoader(false);
-            mostrarAviso("Pago realizado exitosamente.");
+                if (response.ok) {
+                    deudaPendienteTemp = null;
+                    mostrarAviso(data.mensaje);
+                } else {
+                    mostrarAviso(data.error);
+                }
+            } catch (error) {
+                showLoader(false);
+                mostrarAviso("Error de conexión con el servidor.");
+            }
         }
-
         // --- RECARGAS (PASAJERO A WHATSAPP) ---
         window.abrirModalRecarga = () => {
             document.getElementById('modal-recarga').classList.remove('opacity-0', 'pointer-events-none');
@@ -1075,38 +1076,34 @@ let tasaActual = 1;
 
         window.cancelarRetiro = () => { cerrarModales(); }
 
+        // Solicitar retiro llamando al servidor de Vercel
         window.ejecutarRetiro = async function() {
             const monto = Number(document.getElementById('input-retiro').value);
+            
+            document.getElementById('modal-retiro').classList.add('opacity-0', 'pointer-events-none');
             showLoader(true);
 
-            // Transacción atómica para evitar retiros fantasma si presionan rápido
-            const retiroTrans = await runTransaction(ref(db, `users/${usuarioActual.phone}/balance`), (balanceActual) => {
-                const balance = balanceActual || 0;
-                if (balance < monto) return; // Aborta si intenta retirar más de su saldo real en DB
-                return balance - monto;
-            });
-
-            if (retiroTrans.committed) {
-                const ordenId = push(ref(db, 'withdrawal_orders')).key;
-                const updates = {
-                    [`withdrawal_orders/${ordenId}`]: {
+            try {
+                const response = await fetch('/api/solicitar-retiro', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
                         motoPhone: usuarioActual.phone,
-                        motoName: usuarioActual.nombre,
-                        cedula: usuarioActual.cedula,
-                        banco: usuarioActual.banco,
-                        monto: monto,
-                        status: 'pendiente',
-                        fecha: Date.now()
-                    }
-                };
-                
-                await update(ref(db), updates);
+                        monto: monto
+                    })
+                });
+
+                const data = await response.json();
                 showLoader(false);
-                cerrarModales();
-                mostrarAviso(`Se descontaron Bs ${monto}. Ve a la taquilla para que te entreguen el dinero.`);
-            } else {
+
+                if (response.ok) {
+                    mostrarAviso(data.mensaje);
+                } else {
+                    mostrarAviso(data.error);
+                }
+            } catch (error) {
                 showLoader(false);
-                mostrarAviso("Saldo insuficiente o error al procesar el retiro.");
+                mostrarAviso("Error de conexión con el servidor.");
             }
         }
 
