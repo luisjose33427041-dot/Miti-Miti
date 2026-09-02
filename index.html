@@ -103,7 +103,14 @@
                     <button type="button" onclick="togglePassword('reg-pass-confirm', this)" class="absolute right-4 top-1/2 transform -translate-y-1/2 text-xl opacity-70 hover:opacity-100 transition focus:outline-none">👁️</button>
                 </div>
                 
+                <button type="button" onclick="vincularGoogle()" id="btn-google-reg" class="w-full bg-white text-slate-900 font-bold py-3 rounded-xl mt-2 flex items-center justify-center gap-2 transition hover:bg-slate-200">
+                    <svg class="w-5 h-5" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
+                    Vincular Correo Google (Requerido)
+                </button>
+                <input type="hidden" id="reg-email-google" value="">
+                
                 <button onclick="registrarUsuario()" class="w-full bg-emerald-500 text-slate-950 font-bold py-4 rounded-2xl mt-4">
+                    Registrar Cuenta
                 </button>
             </div>
         </div>
@@ -334,3 +341,797 @@
         </div>
 
     </div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app.js";
+        import { getDatabase, ref, get, set, update, push, onValue, runTransaction } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-database.js";
+        import { getAuth, signInWithPopup, GoogleAuthProvider } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-auth.js";
+
+        const firebaseConfig = {
+        apiKey: "AIzaSyDOgOTD6kBt4270Wet0jZrOof8NwEcTO3U",
+            authDomain: "motoweb-a6fdd.firebaseapp.com",
+            databaseURL: "https://motoweb-a6fdd-default-rtdb.firebaseio.com",
+            projectId: "motoweb-a6fdd",
+            storageBucket: "motoweb-a6fdd.firebasestorage.app",
+            messagingSenderId: "494342979677",
+            appId: "1:494342979677:web:ce1024a05de74662c3cdb4"
+        };
+const app = initializeApp(firebaseConfig);
+        const db = getDatabase(app);
+        const auth = getAuth(app);
+        const provider = new GoogleAuthProvider();
+        provider.setCustomParameters({ prompt: 'select_account' });
+
+        window.vincularGoogle = async function() {
+            try {
+                // Carga la ventana emergente para obtener el correo real
+                const result = await signInWithPopup(auth, provider);
+                const user = result.user;
+                
+                // Se guarda el correo para reglas de seguridad
+                document.getElementById('reg-email-google').value = user.email;
+                
+                // Actualiza visualmente el botón
+                const btn = document.getElementById('btn-google-reg');
+                btn.innerHTML = '✅ Correo Vinculado: ' + user.email;
+                btn.classList.replace('bg-white', 'bg-emerald-100');
+                btn.disabled = true;
+            } catch (error) {
+                // Intercepta el error exacto (ej. ventana cerrada o dominio no autorizado)
+                const modal = document.getElementById('modal-aviso');
+                if(modal) {
+                    document.getElementById('aviso-titulo').innerText = "⚠️ Error de Google";
+                    document.getElementById('aviso-texto').innerText = "Motivo: " + error.message + "\n\nCódigo exacto: " + error.code;
+                    modal.classList.remove('opacity-0', 'pointer-events-none');
+                } else {
+                    alert("Error: " + error.message);
+                }
+            }
+        };
+
+        // Función nativa para encriptar contraseñas (SHA-256)
+        async function hashPassword(password) {
+            const encoder = new TextEncoder();
+            const data = encoder.encode(password);
+            const hash = await crypto.subtle.digest('SHA-256', data);
+            return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
+        }
+       // Variables de sesión en memoria (Sin LocalStorage)
+        let usuarioActual = null;
+        let qrCodeObj = null;
+
+        const numAdminWhatsapp = "584241959869"; // Número configurado para WhatsApp
+        
+        // UI toggles
+        window.mostrarRegistro = () => { document.getElementById('login-form').classList.add('hidden'); document.getElementById('register-form').classList.remove('hidden'); }
+        window.mostrarLogin = () => { document.getElementById('register-form').classList.add('hidden'); document.getElementById('login-form').classList.remove('hidden'); }
+        
+        // NUEVO: Función para ver/ocultar contraseña
+        window.togglePassword = (inputId, btn) => {
+            const input = document.getElementById(inputId);
+            if (input.type === 'password') {
+                input.type = 'text';
+                btn.innerText = '🙈'; // Cambia el icono cuando el texto es visible
+            } else {
+                input.type = 'password';
+                btn.innerText = '👁️'; // Vuelve al ojito normal
+            }
+        }
+        
+        window.cambiarPantalla = function(idDestino) {
+            const pantallas = ['screen-welcome', 'screen-dashboard-user', 'screen-dashboard-moto', 'screen-waitlist', 'screen-otp-registro'];
+            pantallas.forEach(id => {
+                document.getElementById(id).classList.add('hidden'); document.getElementById(id).classList.remove('flex');
+            });
+            const destino = document.getElementById(idDestino);
+            destino.classList.remove('hidden'); destino.classList.add('flex');
+        }
+
+        window.cerrarSesion = () => { 
+            usuarioActual = null; 
+            localStorage.removeItem('kashmoto_session'); // <-- Destruye la sesión guardada
+            window.location.reload(); 
+        }
+
+        function showLoader(show) { document.getElementById('loader-screen').style.opacity = show ? '1' : '0'; document.getElementById('loader-screen').style.pointerEvents = show ? 'auto' : 'none'; }
+
+        // Función para convertir a Base64 con compresión extrema para Firebase
+        const toBase64 = (file) => {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.readAsDataURL(file);
+                reader.onload = (event) => {
+                    const img = new Image();
+                    img.src = event.target.result;
+                    img.onload = () => {
+                        // Dimensiones reducidas a 800px para garantizar subida rápida
+                        const MAX_WIDTH = 800;
+                        const MAX_HEIGHT = 800;
+                        let width = img.width;
+                        let height = img.height;
+
+                        if (width > height) {
+                            if (width > MAX_WIDTH) {
+                                height = Math.round(height * (MAX_WIDTH / width));
+                                width = MAX_WIDTH;
+                            }
+                        } else {
+                            if (height > MAX_HEIGHT) {
+                                width = Math.round(width * (MAX_HEIGHT / height));
+                                height = MAX_HEIGHT;
+                            }
+                        }
+
+                        const canvas = document.createElement('canvas');
+                        canvas.width = width;
+                        canvas.height = height;
+                        const ctx = canvas.getContext('2d');
+                        ctx.drawImage(img, 0, 0, width, height);
+                        
+                        // Calidad bajada al 60% (0.6) para evitar el colapso de peso en RTDB
+                        resolve(canvas.toDataURL('image/jpeg', 0.6));
+                    };
+                };
+                reader.onerror = error => reject(error);
+            });
+        };
+
+        // --- REGISTRO ---
+        window.registrarUsuario = async function() {
+            const rol = document.getElementById('reg-rol').value;
+            const nombres = document.getElementById('reg-nombres').value;
+            const apellidos = document.getElementById('reg-apellidos').value;
+            const nacionalidad = document.getElementById('reg-nacionalidad').value;
+            const cedulaNum = document.getElementById('reg-cedula').value;
+            const cedula = nacionalidad + "-" + cedulaNum;
+            const fechaNac = document.getElementById('reg-fecha-nac').value;
+            
+            let phoneInput = document.getElementById('reg-phone').value.trim();
+            // Limpia cualquier símbolo (como el +) o espacios
+            phoneInput = phoneInput.replace(/\D/g, ''); 
+            
+            // Si empieza con 0, se lo quitamos
+            if (phoneInput.startsWith('0')) {
+                phoneInput = phoneInput.substring(1);
+            } 
+            // Si el usuario escribió el 58 directamente, se lo separamos temporalmente
+            else if (phoneInput.startsWith('58')) {
+                phoneInput = phoneInput.substring(2); 
+            }
+            
+            // Ensamblamos el número final en formato 58412...
+            const phone = "58" + phoneInput;
+            
+            const banco = document.getElementById('reg-banco').value;
+            const pass = document.getElementById('reg-pass').value;
+            const passConfirm = document.getElementById('reg-pass-confirm').value;
+            const emailGoogle = document.getElementById('reg-email-google').value;
+            
+            const fileCara = document.getElementById('reg-foto-cara').files[0];
+            const fileCedula = document.getElementById('reg-foto-cedula').files[0];
+
+            if(!emailGoogle) {
+                return mostrarAviso("Debes vincular tu cuenta de Google antes de registrarte.");
+            }
+
+            if(!nombres || !apellidos || !cedulaNum || !fechaNac || !phoneInput || !pass || !fileCara || !fileCedula || (rol === 'moto' && !banco)) {
+                return mostrarAviso("Por favor, completa todos los campos requeridos y sube ambas fotos.");
+            }
+
+            // Validar que sea mayor de 18 años
+            const hoy = new Date();
+            const cumpleanos = new Date(fechaNac);
+            let edad = hoy.getFullYear() - cumpleanos.getFullYear();
+            const m = hoy.getMonth() - cumpleanos.getMonth();
+            if (m < 0 || (m === 0 && hoy.getDate() < cumpleanos.getDate())) {
+                edad--;
+            }
+            if(edad < 18) {
+                return mostrarAviso("Debes ser mayor de 18 años para registrarte.");
+            }
+            
+            // Validar contraseña: 6 caracteres entre letras y números
+            const passRegex = /^(?=.*[A-Za-z])(?=.*\d)[A-Za-z\d]{6}$/;
+            if(!passRegex.test(pass)) {
+                return mostrarAviso("La contraseña debe tener exactamente 6 caracteres, incluyendo letras y números.");
+            }
+
+            if(pass !== passConfirm) return mostrarAviso("Las contraseñas no coinciden");
+
+            showLoader(true);
+            try {
+                const userRef = ref(db, 'users/' + phone);
+                const snapshot = await get(userRef);
+                
+                if(snapshot.exists()) {
+                    showLoader(false);
+                    return mostrarAviso("Este teléfono ya está registrado.");
+                }
+
+                const fotoCaraBase64 = await toBase64(fileCara);
+                const fotoCedulaBase64 = await toBase64(fileCedula);
+
+                const nombreCompleto = `${nombres} ${apellidos}`;
+
+// Encriptar la contraseña antes de guardarla en la base de datos
+                const hashedPassword = await hashPassword(pass);
+
+                // status 'espera' y creacion de OTP para validacion por WhatsApp
+                const codigoOtp = Math.floor(100000 + Math.random() * 900000).toString();
+                const expiraEn = Date.now() + (5 * 60 * 1000); // 5 minutos
+
+                const nuevoUsuario = { 
+                    rol, nombre: nombreCompleto, cedula, fechaNac, phone, banco, 
+                    password: hashedPassword, balance: 0, locked: false, status: 'espera',
+                    fotoCara: fotoCaraBase64, fotoCedula: fotoCedulaBase64,
+                    otpRegistro: codigoOtp,
+                    otpExpira: expiraEn,
+                    email: emailGoogle
+                };
+                
+                await set(userRef, nuevoUsuario);
+                
+                // Guardar variable temporal para saber a qué usuario validaremos
+                window.telefonoEnRegistro = phone; 
+
+                showLoader(false);
+                iniciarTimerOtp(expiraEn);
+                cambiarPantalla('screen-otp-registro');
+            } catch (error) {
+                showLoader(false);
+                mostrarAviso("Hubo un error en el registro. Inténtalo de nuevo.");
+            }
+        }
+
+        // --- VALIDACIÓN OTP DE REGISTRO ---
+        let timerOtpInterval;
+
+        window.iniciarTimerOtp = function(expiraEn) {
+            if(timerOtpInterval) clearInterval(timerOtpInterval);
+            const timerDisplay = document.getElementById('otp-reg-timer');
+            
+            timerOtpInterval = setInterval(async () => {
+                const ahora = Date.now();
+                const diff = expiraEn - ahora;
+                
+                if(diff <= 0) {
+                    clearInterval(timerOtpInterval);
+                    timerDisplay.innerText = "00:00";
+                    timerDisplay.classList.replace('text-emerald-400', 'text-red-500');
+                    mostrarAviso("El tiempo ha expirado. El registro se ha cancelado.");
+                    
+                    if(window.telefonoEnRegistro) {
+                        await set(ref(db, 'users/' + window.telefonoEnRegistro), null);
+                        window.telefonoEnRegistro = null;
+                    }
+                    setTimeout(() => window.location.reload(), 3000);
+                } else {
+                    const min = Math.floor(diff / 60000);
+                    const sec = Math.floor((diff % 60000) / 1000);
+                    timerDisplay.innerText = `0${min}:${sec < 10 ? '0'+sec : sec}`;
+                }
+            }, 1000);
+        }
+
+        window.verificarCodigoRegistro = async function() {
+            const inputCodigo = document.getElementById('input-reg-otp').value;
+            if(!inputCodigo || inputCodigo.length !== 6) return mostrarAviso("Ingresa el código de 6 dígitos.");
+            if(!window.telefonoEnRegistro) return mostrarAviso("Error de sesión. Recarga la página.");
+
+            showLoader(true);
+            const userRef = ref(db, 'users/' + window.telefonoEnRegistro);
+            const snapshot = await get(userRef);
+            
+            if(snapshot.exists()) {
+                const data = snapshot.val();
+                
+                if(Date.now() > data.otpExpira) {
+                    showLoader(false);
+                    return mostrarAviso("El código ha expirado.");
+                }
+
+                if(data.otpRegistro === inputCodigo) {
+                    const updates = {};
+                    updates[`users/${window.telefonoEnRegistro}/status`] = 'aprobado'; // Cambia status
+                    updates[`users/${window.telefonoEnRegistro}/otpRegistro`] = null; // Limpia BD
+                    updates[`users/${window.telefonoEnRegistro}/otpExpira`] = null; // Limpia BD
+                    
+                    await update(ref(db), updates);
+                    clearInterval(timerOtpInterval);
+                    showLoader(false);
+                    
+                    mostrarAviso("¡Cuenta verificada y aprobada con éxito!", "¡Bienvenido!");
+                    usuarioActual = { ...data, status: 'aprobado' };
+                    localStorage.setItem('kashmoto_session', usuarioActual.phone);
+                    cargarDashboard();
+                } else {
+                    showLoader(false);
+                    mostrarAviso("Código incorrecto. Intenta de nuevo.");
+                }
+            } else {
+                showLoader(false);
+                mostrarAviso("Usuario no encontrado.");
+            }
+        }
+
+        window.cancelarRegistro = async function() {
+            if(window.telefonoEnRegistro) {
+                showLoader(true);
+                await set(ref(db, 'users/' + window.telefonoEnRegistro), null); // Borra el registro si se arrepiente
+                window.telefonoEnRegistro = null;
+                if(timerOtpInterval) clearInterval(timerOtpInterval);
+                showLoader(false);
+            }
+            window.location.reload();
+        }
+        // --- INGRESO (LOGIN) ---
+        window.iniciarSesion = async function() {
+            let phone = document.getElementById('login-phone').value.trim();
+            
+            // Convertir formato: limpia símbolos y cambia el 0 inicial por 58
+            phone = phone.replace(/\D/g, ''); 
+            if (phone.startsWith('0')) {
+                phone = '58' + phone.substring(1);
+            } else if (!phone.startsWith('58') && phone.length === 10) {
+                phone = '58' + phone; 
+            }
+            
+            const pass = document.getElementById('login-pass').value;
+            
+            if(!phone || !pass) return mostrarAviso("Ingresa datos");
+            showLoader(true);
+
+            const userRef = ref(db, 'users/' + phone);
+            const snapshot = await get(userRef);
+            showLoader(false);
+
+            if(snapshot.exists()) {
+                const data = snapshot.val();
+                // Encriptamos la contraseña ingresada para compararla con la de la BD
+                const hashedInputPass = await hashPassword(pass); 
+                
+                if(data.password === hashedInputPass) {
+                    // Verificamos si está aprobado o en espera
+                    if(data.status === 'espera') {
+                        if(data.otpExpira && data.otpExpira > Date.now()) {
+                            window.telefonoEnRegistro = data.phone;
+                            iniciarTimerOtp(data.otpExpira);
+                            cambiarPantalla('screen-otp-registro');
+                        } else {
+                            cambiarPantalla('screen-waitlist');
+                        }
+                    } else {
+                        usuarioActual = data;
+                        localStorage.setItem('kashmoto_session', usuarioActual.phone); // <-- Mantiene la sesión viva
+                        cargarDashboard();
+                    }
+                } else {
+                    mostrarAviso("Contraseña incorrecta");
+                }
+            } else {
+                mostrarAviso("Usuario no encontrado");
+            }
+        }
+
+        
+let tasaActual = 1;
+
+        // Escuchar tasa del admin en tiempo real
+        onValue(ref(db, 'admin/tasa'), (snapshot) => {
+            tasaActual = snapshot.val() || 1;
+            if(document.getElementById('lbl-tasa-user')) document.getElementById('lbl-tasa-user').innerText = `Bs. ${tasaActual}`;
+            if(document.getElementById('lbl-tasa-moto')) document.getElementById('lbl-tasa-moto').innerText = `Bs. ${tasaActual}`;
+            actualizarSaldosVisuales();
+        });
+
+        function actualizarSaldosVisuales() {
+            if(!usuarioActual) return;
+            const saldoBs = Number(usuarioActual.balance || 0);
+            const saldoUsd = tasaActual > 0 ? (saldoBs / tasaActual).toFixed(2) : '0.00';
+            
+            if(usuarioActual.rol === 'pasajero') {
+                document.getElementById('lbl-user-balance').innerText = `Bs. ${saldoBs.toFixed(2)}`;
+                document.getElementById('lbl-user-balance-usd').innerText = `$ ${saldoUsd}`;
+            } else {
+                document.getElementById('lbl-moto-balance').innerText = `Bs. ${saldoBs.toFixed(2)}`;
+                document.getElementById('lbl-moto-balance-usd').innerText = `$ ${saldoUsd}`;
+            }
+        }
+
+// --- CARGA DE DASHBOARDS EN TIEMPO REAL ---
+        function cargarDashboard() {
+            onValue(ref(db, 'users/' + usuarioActual.phone), (snapshot) => {
+                const data = snapshot.val();
+                if(!data) return;
+                usuarioActual = data; 
+                
+                actualizarSaldosVisuales();
+
+                if(usuarioActual.rol === 'pasajero') {
+                    document.getElementById('lbl-user-name').innerText = usuarioActual.nombre;
+                    document.getElementById('lbl-user-phone').innerText = usuarioActual.phone;
+                    revisarDeudas();
+                    escucharSolicitudesOTP(); // NUEVO: Activa el listener del código
+                    cambiarPantalla('screen-dashboard-user');
+                } else {
+                    document.getElementById('lbl-moto-name').innerText = usuarioActual.nombre;
+                    document.getElementById('lbl-moto-phone').innerText = `ID: ${usuarioActual.phone}`;
+                    revisarRetirosPendientes();
+                    cambiarPantalla('screen-dashboard-moto');
+                }
+            });
+        }
+
+        // --- SISTEMA DE RETIROS PENDIENTES ---
+        function revisarRetirosPendientes() {
+            onValue(ref(db, 'withdrawal_orders'), (snapshot) => {
+                const retiros = snapshot.val() || {};
+                let pendiente = null;
+                
+                Object.keys(retiros).forEach(key => {
+                    if(retiros[key].motoPhone === usuarioActual.phone && retiros[key].status === 'pendiente') {
+                        pendiente = retiros[key];
+                    }
+                });
+
+                const box = document.getElementById('retiro-pendiente-box');
+                const btn = document.getElementById('btn-solicitar-retiro');
+                if(pendiente) {
+                    box.classList.remove('hidden');
+                    document.getElementById('lbl-retiro-monto').innerText = `Bs ${Number(pendiente.monto).toFixed(2)}`;
+                    btn.classList.add('opacity-50', 'pointer-events-none');
+                    btn.innerHTML = 'Retiro en progreso...';
+                } else {
+                    box.classList.add('hidden');
+                    btn.classList.remove('opacity-50', 'pointer-events-none');
+                    btn.innerHTML = '💵 Solicitar Retiro';
+                }
+            });
+        }
+
+        // --- HISTORIAL COMPRADOR ---
+        window.abrirHistorial = () => {
+            document.getElementById('modal-historial').classList.remove('opacity-0', 'pointer-events-none');
+            const listContainer = document.getElementById('lista-historial');
+            listContainer.innerHTML = '<p class="text-slate-400 text-sm text-center">Cargando...</p>';
+            
+            get(ref(db, 'pending_payments')).then((snapshot) => {
+                const pagos = snapshot.val() || {};
+                listContainer.innerHTML = '';
+                let count = 0;
+                
+                Object.keys(pagos).forEach(key => {
+                    if(pagos[key].pasajeroPhone === usuarioActual.phone && pagos[key].status === 'pagado') {
+                        count++;
+                        const item = document.createElement('div');
+                        item.className = 'p-4 rounded-xl border bg-slate-800 border-slate-700';
+                        item.innerHTML = `
+                            <p class="text-xs text-slate-400">Servicio Autorizado: ${pagos[key].motoId}</p>
+                            <p class="text-lg font-bold text-emerald-400">Completado: Bs ${Number(pagos[key].monto).toFixed(2)}</p>
+                        `;
+                        listContainer.appendChild(item);
+                    }
+                });
+                if(count === 0) listContainer.innerHTML = '<p class="text-slate-400 text-sm text-center mt-4">Aún no tienes pagos completados.</p>';
+            });
+        }
+        // --- LÓGICA DEUDAS Y BLOQUEO PASAJERO ---
+        let intervaloCronometros = null;
+        function revisarDeudas() {
+            onValue(ref(db, 'pending_payments'), (snapshot) => {
+                const pagos = snapshot.val() || {};
+                const listContainer = document.getElementById('lista-pagos');
+                listContainer.innerHTML = '';
+                
+                let tieneVencidas = false;
+                let deudasCount = 0;
+                
+                Object.keys(pagos).forEach(key => {
+                    const pago = pagos[key];
+                    if(pago.pasajeroPhone === usuarioActual.phone && pago.status === 'pendiente') {
+                        deudasCount++;
+                        const vencido = Date.now() > pago.dueDate;
+                        if(vencido) tieneVencidas = true;
+
+                        const item = document.createElement('div');
+                        item.className = `p-4 rounded-xl border ${vencido ? 'bg-red-900/50 border-red-500' : 'bg-slate-800 border-slate-700'}`;
+                        item.innerHTML = `
+                            <div class="flex justify-between items-center">
+                                <div>
+                                    <p class="text-xs text-slate-400">Moto: ${pago.motoId}</p>
+                                    <p class="text-lg font-bold text-white">Deuda: Bs ${Number(pago.monto).toFixed(2)}</p>
+                                    <p class="text-xs font-mono mt-1 time-left" data-due="${pago.dueDate}">${vencido ? '¡TIEMPO AGOTADO!' : 'Calculando...'}</p>
+                                </div>
+                                <button onclick="pagarDeuda('${key}', ${pago.monto}, ${pago.montoOriginal})" class="bg-emerald-500 text-slate-900 px-3 py-2 rounded-lg font-bold text-sm">Pagar</button>
+                            </div>
+                        `;
+                        listContainer.appendChild(item);
+                    }
+                });
+
+                document.getElementById('badge-deuda').style.display = deudasCount > 0 ? 'block' : 'none';
+                
+                // Bloqueo de pantalla
+                const lockScreen = document.getElementById('user-lock-screen');
+                if(tieneVencidas) {
+                    lockScreen.classList.remove('hidden');
+                    lockScreen.classList.add('flex');
+                } else {
+                    lockScreen.classList.add('hidden');
+                    lockScreen.classList.remove('flex');
+                }
+
+                iniciarCronometros();
+            });
+        }
+
+        function iniciarCronometros() {
+            if(intervaloCronometros) clearInterval(intervaloCronometros);
+            intervaloCronometros = setInterval(() => {
+                document.querySelectorAll('.time-left').forEach(el => {
+                    const due = Number(el.getAttribute('data-due'));
+                    const now = Date.now();
+                    if(now > due) { el.innerText = '¡VENCIDO! Cuenta bloqueada.'; el.classList.add('text-red-400'); }
+                    else {
+                        const diff = due - now;
+                        const h = Math.floor(diff / (1000 * 60 * 60));
+                        const m = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+                        const s = Math.floor((diff % (1000 * 60)) / 1000);
+                        el.innerText = `Quedan: ${h}h ${m}m ${s}s`;
+                        el.classList.add('text-yellow-400');
+                    }
+                });
+            }, 1000);
+        }
+
+        let deudaPendienteTemp = null;
+
+        // Pagar deuda (Abre el modal bonito)
+        window.pagarDeuda = function(pagoId, montoDeuda, montoOriginal) {
+            if(usuarioActual.balance < montoDeuda) return mostrarAviso("Saldo insuficiente. Recarga primero.");
+            
+            deudaPendienteTemp = { id: pagoId, monto: montoDeuda, original: montoOriginal };
+            document.getElementById('txt-monto-confirmar').innerText = `Bs ${montoDeuda}`;
+            document.getElementById('modal-confirmar-pago').classList.remove('opacity-0', 'pointer-events-none');
+        }
+
+        // Ejecuta la lógica matemática tras presionar "Sí, Pagar"
+        window.ejecutarPagoDeuda = async function() {
+            if(!deudaPendienteTemp) return;
+            
+            document.getElementById('modal-confirmar-pago').classList.add('opacity-0', 'pointer-events-none');
+            showLoader(true);
+            
+            const montoPagar = Number(deudaPendienteTemp.monto);
+            const adminGanancia = deudaPendienteTemp.original * 0.15;
+            
+            // Transacción atómica: Restar saldo al usuario
+            await runTransaction(ref(db, `users/${usuarioActual.phone}/balance`), (balanceActual) => {
+                return (balanceActual || 0) - montoPagar;
+            });
+
+            // Transacción atómica: Sumar ganancia al administrador
+            await runTransaction(ref(db, 'admin/profit'), (gananciaActual) => {
+                return (gananciaActual || 0) + adminGanancia;
+            });
+
+            // Actualizar solo el estatus del pago
+            await update(ref(db), {
+                [`pending_payments/${deudaPendienteTemp.id}/status`]: 'pagado'
+            });
+            
+            deudaPendienteTemp = null;
+            showLoader(false);
+            mostrarAviso("Pago realizado exitosamente.");
+        }
+
+        // --- RECARGAS (PASAJERO A WHATSAPP) ---
+        window.abrirModalRecarga = () => {
+            document.getElementById('modal-recarga').classList.remove('opacity-0', 'pointer-events-none');
+        }
+        window.irAWhatsApp = () => {
+            const monto = document.getElementById('input-monto-recarga').value;
+            if(!monto || monto <= 0) return alert("Monto inválido");
+            const msj = `Hola, soy el ID ${usuarioActual.phone}, quiero recargar ${monto} Bs.`;
+            window.open(`https://wa.me/${numAdminWhatsapp}?text=${encodeURIComponent(msj)}`);
+            cerrarModales();
+        }
+        window.abrirPagosPendientes = () => { document.getElementById('modal-pagos').classList.remove('opacity-0', 'pointer-events-none'); }
+
+        // --- NUEVO SISTEMA DE VALIDACIÓN OTP (COMPRADOR-LOCAL) ---
+
+        // Función que escucha en tiempo real si el local le solicitó un código
+        window.escucharSolicitudesOTP = function() {
+            onValue(ref(db, 'auth_requests/' + usuarioActual.phone), (snapshot) => {
+                const modalOTP = document.getElementById('modal-otp-comprador');
+                if (snapshot.exists()) {
+                    const peticion = snapshot.val();
+                    if(peticion.status === 'esperando') {
+                        document.getElementById('otp-vendedor-id').innerText = peticion.vendedorId;
+                        document.getElementById('otp-monto').innerText = peticion.monto;
+                        document.getElementById('otp-codigo-mostrar').innerText = peticion.otp;
+                        modalOTP.classList.remove('opacity-0', 'pointer-events-none');
+                    } else {
+                        modalOTP.classList.add('opacity-0', 'pointer-events-none');
+                    }
+                } else {
+                    modalOTP.classList.add('opacity-0', 'pointer-events-none');
+                }
+            });
+        }
+
+        window.abrirModalCarrera = () => {
+            document.getElementById('scan-pasajero-id').value = '';
+            document.getElementById('scan-monto').value = '';
+            document.getElementById('scan-otp-input').value = '';
+            volverPaso1Escaner();
+            document.getElementById('modal-escaner').classList.remove('opacity-0', 'pointer-events-none');
+        };
+
+        window.volverPaso1Escaner = () => {
+            document.getElementById('escaner-paso-1').classList.remove('hidden');
+            document.getElementById('escaner-paso-2').classList.add('hidden');
+        }
+
+        // Paso 1: El local ingresa monto y teléfono y pide el código
+        window.solicitarAprobacionCompra = async function() {
+            const phonePasajero = document.getElementById('scan-pasajero-id').value;
+            const monto = Number(document.getElementById('scan-monto').value);
+            const metodo = document.getElementById('scan-metodo').value;
+
+            if(!phonePasajero || !monto || monto <= 0) return mostrarAviso("Ingresa el teléfono y el monto.");
+
+            showLoader(true);
+            const pasRef = ref(db, 'users/' + phonePasajero);
+            const pasSnap = await get(pasRef);
+            
+            if(!pasSnap.exists() || pasSnap.val().rol !== 'pasajero') {
+                showLoader(false); 
+                return mostrarAviso("Comprador no encontrado en el sistema.");
+            }
+
+            // Generar código de 6 dígitos aleatorio
+            const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+
+            const peticionRef = ref(db, 'auth_requests/' + phonePasajero);
+            await set(peticionRef, {
+                vendedorId: usuarioActual.phone,
+                monto: monto,
+                metodo: metodo,
+                otp: otpCode,
+                status: 'esperando',
+                timestamp: Date.now()
+            });
+
+            showLoader(false);
+            
+            // Ocultar paso 1, mostrar paso 2 en la pantalla del local
+            document.getElementById('escaner-paso-1').classList.add('hidden');
+            document.getElementById('escaner-paso-2').classList.remove('hidden');
+        }
+
+        // Si el local anula el cobro antes de ingresar el código
+        window.cancelarSolicitudCompra = async function() {
+            const phonePasajero = document.getElementById('scan-pasajero-id').value;
+            if(phonePasajero) {
+                await set(ref(db, 'auth_requests/' + phonePasajero), null); // Borrar nodo para cerrar la pantalla del comprador
+            }
+            cerrarModales();
+        }
+
+        // Ejemplo de cómo debes llamar a tu API desde el botón de confirmar OTP o venta:
+async function procesarVentaSegura(compradorId, vendedorId, otpIngresado) {
+    try {
+        const respuesta = await fetch('/api/procesar-venta', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                compradorId: compradorId,
+                vendedorId: vendedorId,
+                otp: otpIngresado
+            })
+        });
+
+        const resultado = await respuesta.json();
+
+        if (respuesta.ok) {
+            alert("¡Venta procesada con éxito!");
+            // Aquí puedes actualizar la interfaz, recargar la página o limpiar campos
+            console.log(resultado.mensaje);
+        } else {
+            alert("Error: " + resultado.error);
+        }
+    } catch (error) {
+        console.error("Error de red:", error);
+        alert("Ocurrió un error al conectar con el servidor.");
+    }
+}
+
+        // --- RETIROS MOTOTAXI ---
+        window.abrirModalRetiro = () => {
+            document.getElementById('input-retiro').value = '';
+            document.getElementById('box-btn-retiro').classList.remove('hidden');
+            document.getElementById('box-confirm-retiro').classList.add('hidden');
+            document.getElementById('box-confirm-retiro').classList.remove('flex');
+            document.getElementById('modal-retiro').classList.remove('opacity-0', 'pointer-events-none');
+        }
+
+        window.preConfirmarRetiro = () => {
+            const monto = Number(document.getElementById('input-retiro').value);
+            if(!monto || monto <= 0 || monto > usuarioActual.balance) return mostrarAviso("Monto inválido o supera tu saldo.");
+            document.getElementById('box-btn-retiro').classList.add('hidden');
+            document.getElementById('box-confirm-retiro').classList.remove('hidden');
+            document.getElementById('box-confirm-retiro').classList.add('flex');
+        }
+
+        window.cancelarRetiro = () => { cerrarModales(); }
+
+        window.ejecutarRetiro = async function() {
+            const monto = Number(document.getElementById('input-retiro').value);
+            showLoader(true);
+
+            // Transacción atómica para evitar retiros fantasma si presionan rápido
+            const retiroTrans = await runTransaction(ref(db, `users/${usuarioActual.phone}/balance`), (balanceActual) => {
+                const balance = balanceActual || 0;
+                if (balance < monto) return; // Aborta si intenta retirar más de su saldo real en DB
+                return balance - monto;
+            });
+
+            if (retiroTrans.committed) {
+                const ordenId = push(ref(db, 'withdrawal_orders')).key;
+                const updates = {
+                    [`withdrawal_orders/${ordenId}`]: {
+                        motoPhone: usuarioActual.phone,
+                        motoName: usuarioActual.nombre,
+                        cedula: usuarioActual.cedula,
+                        banco: usuarioActual.banco,
+                        monto: monto,
+                        status: 'pendiente',
+                        fecha: Date.now()
+                    }
+                };
+                
+                await update(ref(db), updates);
+                showLoader(false);
+                cerrarModales();
+                mostrarAviso(`Se descontaron Bs ${monto}. Ve a la taquilla para que te entreguen el dinero.`);
+            } else {
+                showLoader(false);
+                mostrarAviso("Saldo insuficiente o error al procesar el retiro.");
+            }
+        }
+
+        window.mostrarAviso = (texto, titulo = "Aviso") => {
+            document.getElementById('aviso-titulo').innerText = titulo;
+            document.getElementById('aviso-texto').innerText = texto;
+            document.getElementById('modal-aviso').classList.remove('opacity-0', 'pointer-events-none');
+        }
+
+        window.cerrarModales = () => {
+            document.querySelectorAll('.modal-transition').forEach(m => m.classList.add('opacity-0', 'pointer-events-none'));
+        }
+        // --- AUTO-LOGIN AL RECARGAR LA PÁGINA ---
+        window.onload = async () => {
+            const sessionPhone = localStorage.getItem('kashmoto_session');
+            if (sessionPhone) {
+                showLoader(true);
+                const userRef = ref(db, 'users/' + sessionPhone);
+                const snapshot = await get(userRef);
+                showLoader(false);
+                if (snapshot.exists()) {
+                    usuarioActual = snapshot.val();
+                    if(usuarioActual.status === 'espera') {
+                        cambiarPantalla('screen-waitlist');
+                    } else {
+                        cargarDashboard();
+                    }
+                } else {
+                    localStorage.removeItem('kashmoto_session');
+                }
+            }
+        };
+    </script>
+</body>
+</html>
