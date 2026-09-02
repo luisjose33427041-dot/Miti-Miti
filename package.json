@@ -1,0 +1,9 @@
+{
+  "name": "kashmoto-app",
+  "version": "1.0.0",
+  "description": "App KashMoto Vercel Backend",
+  "main": "index.js",
+  "dependencies": {
+    "firebase-admin": "^11.11.0"
+  }
+}
