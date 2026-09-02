@@ -1019,35 +1019,42 @@ let tasaActual = 1;
             cerrarModales();
         }
 
-        // Ejemplo de cómo debes llamar a tu API desde el botón de confirmar OTP o venta:
-async function procesarVentaSegura(compradorId, vendedorId, otpIngresado) {
-    try {
-        const respuesta = await fetch('/api/procesar-venta', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                compradorId: compradorId,
-                vendedorId: vendedorId,
-                otp: otpIngresado
-            })
-        });
+        window.confirmarCompraOTP = async function() {
+            const phonePasajero = document.getElementById('scan-pasajero-id').value;
+            const codigoIngresado = document.getElementById('scan-otp-input').value;
 
-        const resultado = await respuesta.json();
+            if(!codigoIngresado || codigoIngresado.length !== 6) {
+                return mostrarAviso("Ingresa el código de 6 dígitos.");
+            }
 
-        if (respuesta.ok) {
-            alert("¡Venta procesada con éxito!");
-            // Aquí puedes actualizar la interfaz, recargar la página o limpiar campos
-            console.log(resultado.mensaje);
-        } else {
-            alert("Error: " + resultado.error);
+            showLoader(true);
+
+            try {
+                // Petición segura a la Serverless Function de Vercel
+                const response = await fetch('/api/procesar-venta', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        compradorId: phonePasajero,
+                        vendedorId: usuarioActual.phone, // ID del local / vendedor actual
+                        otp: codigoIngresado
+                    })
+                });
+
+                const data = await response.json();
+                showLoader(false);
+
+                if (response.ok) {
+                    cerrarModales();
+                    mostrarAviso(data.mensaje || "¡Compra procesada con éxito!");
+                } else {
+                    mostrarAviso(data.error || "No se pudo procesar la compra.");
+                }
+            } catch (error) {
+                showLoader(false);
+                mostrarAviso("Error de red al conectar con el servidor.");
+            }
         }
-    } catch (error) {
-        console.error("Error de red:", error);
-        alert("Ocurrió un error al conectar con el servidor.");
-    }
-}
 
         // --- RETIROS MOTOTAXI ---
         window.abrirModalRetiro = () => {
