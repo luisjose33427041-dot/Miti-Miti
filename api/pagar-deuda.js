@@ -33,6 +33,9 @@ export default async function handler(req, res) {
         const montoPagar = Number(pago.monto);
         const adminGanancia = Number(pago.montoOriginal) * 0.15;
 
+        // 1.5 Definir la referencia del saldo del usuario en la base de datos
+        const userBalanceRef = db.ref(`users/${usuarioPhone}/balance`);
+
    // 2. Restar saldo al usuario de forma atómica y segura
         const result = await userBalanceRef.transaction((balanceActual) => {
             if (balanceActual === null) {
