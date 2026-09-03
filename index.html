@@ -23,7 +23,7 @@
 
         <div id="screen-welcome" class="p-6 flex flex-col justify-between flex-1">
             <div class="text-center pt-10">
-                <h1 class="text-5xl font-extrabold text-white tracking-tight">Kash<span class="text-emerald-500">Moto</span></h1>
+                <h1 class="text-5xl font-extrabold text-white tracking-tight">Cash-<span class="text-emerald-500">Compra</span></h1>
                 <p class="text-slate-400 text-sm mt-3">Ingresa o crea tu cuenta</p>
             </div>
             
@@ -178,7 +178,7 @@
             <p class="text-slate-400 text-sm mb-6">Hemos recibido tu registro. Nuestro administrador te enviará un código de 6 dígitos a tu WhatsApp en breve.</p>
             
             <div class="bg-slate-900 border border-emerald-500/50 p-6 rounded-3xl w-full max-w-sm shadow-[0_0_30px_rgba(16,185,129,0.1)]">
-                <p id="otp-reg-timer" class="text-emerald-400 font-mono text-xl font-bold mb-4">05:00</p>
+                <p id="otp-reg-timer" class="text-emerald-400 font-mono text-xl font-bold mb-4">Esperando aprobación...</p>
                 <input type="number" id="input-reg-otp" placeholder="000000" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-4 text-white text-center text-3xl font-extrabold tracking-[0.5em] mb-4 outline-none focus:border-emerald-500 transition shadow-inner">
                 <button onclick="verificarCodigoRegistro()" class="w-full bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold py-4 rounded-2xl transition shadow-lg shadow-emerald-500/20">
                     Confirmar Código
@@ -559,16 +559,15 @@ const app = initializeApp(firebaseConfig);
 // Encriptar la contraseña antes de guardarla en la base de datos
                 const hashedPassword = await hashPassword(pass);
 
-                // status 'espera' y creacion de OTP para validacion por WhatsApp
+                // status 'espera' (Sin límite de tiempo)
                 const codigoOtp = Math.floor(100000 + Math.random() * 900000).toString();
-                const expiraEn = Date.now() + (5 * 60 * 1000); // 5 minutos
 
                 const nuevoUsuario = { 
                     rol, nombre: nombreCompleto, cedula, fechaNac, phone, banco, 
                     password: hashedPassword, balance: 0, locked: false, status: 'espera',
                     fotoCara: fotoCaraBase64, fotoCedula: fotoCedulaBase64,
                     otpRegistro: codigoOtp,
-                    otpExpira: expiraEn,
+                    lineaCredito: 0, // Inicia en 0 por defecto
                     email: emailGoogle
                 };
                 
@@ -578,7 +577,6 @@ const app = initializeApp(firebaseConfig);
                 window.telefonoEnRegistro = phone; 
 
                 showLoader(false);
-                iniciarTimerOtp(expiraEn);
                 cambiarPantalla('screen-otp-registro');
             } catch (error) {
                 showLoader(false);
@@ -589,32 +587,7 @@ const app = initializeApp(firebaseConfig);
         // --- VALIDACIÓN OTP DE REGISTRO ---
         let timerOtpInterval;
 
-        window.iniciarTimerOtp = function(expiraEn) {
-            if(timerOtpInterval) clearInterval(timerOtpInterval);
-            const timerDisplay = document.getElementById('otp-reg-timer');
-            
-            timerOtpInterval = setInterval(async () => {
-                const ahora = Date.now();
-                const diff = expiraEn - ahora;
-                
-                if(diff <= 0) {
-                    clearInterval(timerOtpInterval);
-                    timerDisplay.innerText = "00:00";
-                    timerDisplay.classList.replace('text-emerald-400', 'text-red-500');
-                    mostrarAviso("El tiempo ha expirado. El registro se ha cancelado.");
-                    
-                    if(window.telefonoEnRegistro) {
-                        await set(ref(db, 'users/' + window.telefonoEnRegistro), null);
-                        window.telefonoEnRegistro = null;
-                    }
-                    setTimeout(() => window.location.reload(), 3000);
-                } else {
-                    const min = Math.floor(diff / 60000);
-                    const sec = Math.floor((diff % 60000) / 1000);
-                    timerDisplay.innerText = `0${min}:${sec < 10 ? '0'+sec : sec}`;
-                }
-            }, 1000);
-        }
+        // Función de timer eliminada. El usuario esperará indefinidamente hasta tu aprobación.
 
         window.verificarCodigoRegistro = async function() {
             const inputCodigo = document.getElementById('input-reg-otp').value;
@@ -628,16 +601,10 @@ const app = initializeApp(firebaseConfig);
             if(snapshot.exists()) {
                 const data = snapshot.val();
                 
-                if(Date.now() > data.otpExpira) {
-                    showLoader(false);
-                    return mostrarAviso("El código ha expirado.");
-                }
-
                 if(data.otpRegistro === inputCodigo) {
                     const updates = {};
                     updates[`users/${window.telefonoEnRegistro}/status`] = 'aprobado'; // Cambia status
                     updates[`users/${window.telefonoEnRegistro}/otpRegistro`] = null; // Limpia BD
-                    updates[`users/${window.telefonoEnRegistro}/otpExpira`] = null; // Limpia BD
                     
                     await update(ref(db), updates);
                     clearInterval(timerOtpInterval);
