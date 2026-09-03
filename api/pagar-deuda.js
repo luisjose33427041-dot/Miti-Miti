@@ -20,48 +20,44 @@ export default async function handler(req, res) {
     if (!usuarioPhone || !pagoId) return res.status(400).json({ error: 'Faltan datos.' });
 
     try {
+        // 1. Buscar la deuda en la base de datos (No confiamos en lo que mande el frontend)
         const pagoRef = db.ref(`pending_payments/${pagoId}`);
         const pagoSnap = await pagoRef.once('value');
-        if (!pagoSnap.exists()) return res.status(400).json({ error: 'Pago no encontrado.' });
         
+        if (!pagoSnap.exists()) return res.status(400).json({ error: 'Pago no encontrado.' });
         const pago = pagoSnap.val();
-        if (pago.pasajeroPhone !== usuarioPhone) return res.status(403).json({ error: 'Prohibido.' });
-        if (pago.status !== 'pendiente') return res.status(400).json({ error: 'Pago ya procesado.' });
 
-        const tasaSnap = await db.ref('admin/tasa').once('value');
-        const tasa = tasaSnap.val() || 1;
+        if (pago.pasajeroPhone !== usuarioPhone) return res.status(403).json({ error: 'Esta deuda no te pertenece.' });
+        if (pago.status !== 'pendiente') return res.status(400).json({ error: 'Este pago ya fue procesado.' });
 
-        const montoBsPagar = Number(pago.montoUSD) * tasa; // Paga la deuda al equivalente del día
+        const montoPagar = Number(pago.monto);
+        const adminGanancia = Number(pago.montoOriginal) * 0.15;
 
-        // Descontar saldo digital del usuario
-        const result = await db.ref(`users/${usuarioPhone}/balance`).transaction((balanceActual) => {
-            if (balanceActual === null) return null;
-            if (balanceActual < montoBsPagar) return; 
-            return balanceActual - montoBsPagar;
+        // 1.5 Definir la referencia del saldo del usuario en la base de datos
+        const userBalanceRef = db.ref(`users/${usuarioPhone}/balance`);
+
+   // 2. Restar saldo al usuario de forma atómica y segura
+        const result = await userBalanceRef.transaction((balanceActual) => {
+            if (balanceActual === null) {
+                return null; // Evita que aborte en la primera lectura especulativa
+            }
+            if (balanceActual < montoPagar) {
+                return; 
+            }
+            return balanceActual - montoPagar;
         });
 
         if (!result.committed || result.snapshot.val() === null) {
-            return res.status(400).json({ error: 'Saldo insuficiente para pagar deuda.' });
+            return res.status(400).json({ error: 'Saldo insuficiente.' });
         }
+        // 3. Sumar ganancia al administrador
+        await db.ref('admin/profit').transaction((ganancia) => (ganancia || 0) + adminGanancia);
         
-        // 1. Restaurar $10 de línea de crédito al usuario y borrar la deuda
-        await db.ref(`users/${usuarioPhone}/linea_credito`).set(10);
-        await db.ref(`users/${usuarioPhone}/deuda_credito`).set(0);
-
-        // 2. Mover $3 de "Comisión Espera" a "Profit"
-        const com = pago.comisionAsociadaUSD || 0;
-        await db.ref('admin/comision_espera').transaction(c => Math.max(0, (c || 0) - com));
-        await db.ref('admin/profit').transaction(p => (p || 0) + com);
-
-        // 3. Regresar los $7 frontados al Fondo de Inversión
-        const colchon = pago.colchonAsociadoUSD || 0;
-        await db.ref('admin/fondo').transaction(f => (f || 0) + colchon);
-
-        // 4. Marcar pagado
+        // 4. Marcar deuda como pagada
         await pagoRef.update({ status: 'pagado' });
 
-        return res.status(200).json({ mensaje: 'Deuda liquidada. Tu línea de crédito Cash-Compra de $10 se ha restaurado.' });
+        return res.status(200).json({ mensaje: 'Pago realizado exitosamente.' });
     } catch (error) {
-        return res.status(500).json({ error: 'Error de servidor pagando deuda.' });
+        return res.status(500).json({ error: 'Error del servidor al procesar el pago.' });
     }
 }
