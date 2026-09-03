@@ -33,16 +33,20 @@ export default async function handler(req, res) {
         const montoPagar = Number(pago.monto);
         const adminGanancia = Number(pago.montoOriginal) * 0.15;
 
-        // 2. Restar saldo al usuario de forma atómica y segura
-        const userBalanceRef = db.ref(`users/${usuarioPhone}/balance`);
+   // 2. Restar saldo al usuario de forma atómica y segura
         const result = await userBalanceRef.transaction((balanceActual) => {
-            const balance = balanceActual || 0;
-            if (balance < montoPagar) return; // Cancela la operación si no tiene saldo
-            return balance - montoPagar;
+            if (balanceActual === null) {
+                return null; // Evita que aborte en la primera lectura especulativa
+            }
+            if (balanceActual < montoPagar) {
+                return; 
+            }
+            return balanceActual - montoPagar;
         });
 
-        if (!result.committed) return res.status(400).json({ error: 'Saldo insuficiente.' });
-
+        if (!result.committed || result.snapshot.val() === null) {
+            return res.status(400).json({ error: 'Saldo insuficiente.' });
+        }
         // 3. Sumar ganancia al administrador
         await db.ref('admin/profit').transaction((ganancia) => (ganancia || 0) + adminGanancia);
         
