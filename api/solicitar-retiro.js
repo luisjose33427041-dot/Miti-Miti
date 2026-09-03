@@ -20,22 +20,35 @@ export default async function handler(req, res) {
     if (!motoPhone || !monto || monto <= 0) return res.status(400).json({ error: 'Datos inválidos.' });
 
     try {
-        // 1. Obtener datos reales del usuario desde la BD (para evitar falsificaciones de identidad)
+        // 1. Obtener datos reales del usuario desde la BD (para evitar falsificaciones)
         const motoRef = db.ref(`users/${motoPhone}`);
         const motoSnap = await motoRef.once('value');
         if (!motoSnap.exists()) return res.status(400).json({ error: 'Usuario no encontrado.' });
         
         const moto = motoSnap.val();
 
+        // NUEVO: Validación de seguridad previa a la transacción
+        if ((moto.balance || 0) < monto) {
+            return res.status(400).json({ error: 'Saldo insuficiente para este retiro.' });
+        }
+
         // 2. Restar saldo de forma segura
         const userBalanceRef = db.ref(`users/${motoPhone}/balance`);
         const result = await userBalanceRef.transaction((balanceActual) => {
-            const balance = balanceActual || 0;
-            if (balance < monto) return; // Cancela si pide más de lo que tiene
-            return balance - monto;
+            // Si es la primera pasada sin caché de Firebase (llega null), 
+            // devolvemos el cálculo preliminar para forzar al servidor a verificar el dato real.
+            if (balanceActual === null) {
+                return moto.balance - monto; 
+            }
+            
+            // En la segunda pasada, ya trae el valor real de la BD (ej. 510).
+            // Si de verdad es menor, abortamos.
+            if (balanceActual < monto) return; 
+            
+            return balanceActual - monto;
         });
 
-        if (!result.committed) return res.status(400).json({ error: 'Saldo insuficiente para este retiro.' });
+        if (!result.committed) return res.status(400).json({ error: 'Saldo insuficiente en el momento de procesar.' });
 
         // 3. Crear la orden de retiro en taquilla
         const ordenId = db.ref('withdrawal_orders').push().key;
