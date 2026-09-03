@@ -23,7 +23,7 @@
 
         <div id="screen-welcome" class="p-6 flex flex-col justify-between flex-1">
             <div class="text-center pt-10">
-                <h1 class="text-5xl font-extrabold text-white tracking-tight">Cash-<span class="text-emerald-500">Compra</span></h1>
+                <h1 class="text-5xl font-extrabold text-white tracking-tight">Kash<span class="text-emerald-500">Moto</span></h1>
                 <p class="text-slate-400 text-sm mt-3">Ingresa o crea tu cuenta</p>
             </div>
             
@@ -178,7 +178,7 @@
             <p class="text-slate-400 text-sm mb-6">Hemos recibido tu registro. Nuestro administrador te enviará un código de 6 dígitos a tu WhatsApp en breve.</p>
             
             <div class="bg-slate-900 border border-emerald-500/50 p-6 rounded-3xl w-full max-w-sm shadow-[0_0_30px_rgba(16,185,129,0.1)]">
-                <p id="otp-reg-timer" class="text-emerald-400 font-mono text-xl font-bold mb-4">Esperando aprobación...</p>
+                <p id="otp-reg-timer" class="text-emerald-400 font-mono text-xl font-bold mb-4">05:00</p>
                 <input type="number" id="input-reg-otp" placeholder="000000" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-4 text-white text-center text-3xl font-extrabold tracking-[0.5em] mb-4 outline-none focus:border-emerald-500 transition shadow-inner">
                 <button onclick="verificarCodigoRegistro()" class="w-full bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold py-4 rounded-2xl transition shadow-lg shadow-emerald-500/20">
                     Confirmar Código
@@ -543,38 +543,78 @@ const app = initializeApp(firebaseConfig);
 
             showLoader(true);
             try {
+                const userRef = ref(db, 'users/' + phone);
+                const snapshot = await get(userRef);
+                
+                if(snapshot.exists()) {
+                    showLoader(false);
+                    return mostrarAviso("Este teléfono ya está registrado.");
+                }
+
                 const fotoCaraBase64 = await toBase64(fileCara);
                 const fotoCedulaBase64 = await toBase64(fileCedula);
 
-                const response = await fetch('/api/register', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        rol, nombres, apellidos, nacionalidad, cedulaNum, fechaNac, 
-                        phone, banco, password: pass, emailGoogle, 
-                        fotoCaraBase64, fotoCedulaBase64
-                    })
-                });
+                const nombreCompleto = `${nombres} ${apellidos}`;
 
-                const data = await response.json();
+// Encriptar la contraseña antes de guardarla en la base de datos
+                const hashedPassword = await hashPassword(pass);
+
+                // status 'espera' y creacion de OTP para validacion por WhatsApp
+                const codigoOtp = Math.floor(100000 + Math.random() * 900000).toString();
+                const expiraEn = Date.now() + (5 * 60 * 1000); // 5 minutos
+
+                const nuevoUsuario = { 
+                    rol, nombre: nombreCompleto, cedula, fechaNac, phone, banco, 
+                    password: hashedPassword, balance: 0, locked: false, status: 'espera',
+                    fotoCara: fotoCaraBase64, fotoCedula: fotoCedulaBase64,
+                    otpRegistro: codigoOtp,
+                    otpExpira: expiraEn,
+                    email: emailGoogle
+                };
+                
+                await set(userRef, nuevoUsuario);
+                
+                // Guardar variable temporal para saber a qué usuario validaremos
+                window.telefonoEnRegistro = phone; 
+
                 showLoader(false);
-
-                if (response.ok && data.success) {
-                    window.telefonoEnRegistro = phone; 
-                    cambiarPantalla('screen-otp-registro');
-                } else {
-                    mostrarAviso(data.message || "Hubo un error en el registro.");
-                }
+                iniciarTimerOtp(expiraEn);
+                cambiarPantalla('screen-otp-registro');
             } catch (error) {
                 showLoader(false);
-                mostrarAviso("Error de red al conectar con el servidor.");
+                mostrarAviso("Hubo un error en el registro. Inténtalo de nuevo.");
             }
         }
 
         // --- VALIDACIÓN OTP DE REGISTRO ---
         let timerOtpInterval;
 
-        // Función de timer eliminada. El usuario esperará indefinidamente hasta tu aprobación.
+        window.iniciarTimerOtp = function(expiraEn) {
+            if(timerOtpInterval) clearInterval(timerOtpInterval);
+            const timerDisplay = document.getElementById('otp-reg-timer');
+            
+            timerOtpInterval = setInterval(async () => {
+                const ahora = Date.now();
+                const diff = expiraEn - ahora;
+                
+                if(diff <= 0) {
+                    clearInterval(timerOtpInterval);
+                    timerDisplay.innerText = "00:00";
+                    timerDisplay.classList.replace('text-emerald-400', 'text-red-500');
+                    mostrarAviso("El tiempo ha expirado. El registro se ha cancelado.");
+                    
+                    if(window.telefonoEnRegistro) {
+                        await set(ref(db, 'users/' + window.telefonoEnRegistro), null);
+                        window.telefonoEnRegistro = null;
+                    }
+                    setTimeout(() => window.location.reload(), 3000);
+                } else {
+                    const min = Math.floor(diff / 60000);
+                    const sec = Math.floor((diff % 60000) / 1000);
+                    timerDisplay.innerText = `0${min}:${sec < 10 ? '0'+sec : sec}`;
+                }
+            }, 1000);
+        }
 
         window.verificarCodigoRegistro = async function() {
             const inputCodigo = document.getElementById('input-reg-otp').value;
@@ -582,31 +622,38 @@ const app = initializeApp(firebaseConfig);
             if(!window.telefonoEnRegistro) return mostrarAviso("Error de sesión. Recarga la página.");
 
             showLoader(true);
-            try {
-                const response = await fetch('/api/verificar-otp', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ 
-                        phone: window.telefonoEnRegistro, 
-                        otp: inputCodigo 
-                    })
-                });
+            const userRef = ref(db, 'users/' + window.telefonoEnRegistro);
+            const snapshot = await get(userRef);
+            
+            if(snapshot.exists()) {
+                const data = snapshot.val();
+                
+                if(Date.now() > data.otpExpira) {
+                    showLoader(false);
+                    return mostrarAviso("El código ha expirado.");
+                }
 
-                const data = await response.json();
-                showLoader(false);
-
-                if (response.ok && data.success) {
-                    if(typeof timerOtpInterval !== 'undefined') clearInterval(timerOtpInterval);
+                if(data.otpRegistro === inputCodigo) {
+                    const updates = {};
+                    updates[`users/${window.telefonoEnRegistro}/status`] = 'aprobado'; // Cambia status
+                    updates[`users/${window.telefonoEnRegistro}/otpRegistro`] = null; // Limpia BD
+                    updates[`users/${window.telefonoEnRegistro}/otpExpira`] = null; // Limpia BD
+                    
+                    await update(ref(db), updates);
+                    clearInterval(timerOtpInterval);
+                    showLoader(false);
+                    
                     mostrarAviso("¡Cuenta verificada y aprobada con éxito!", "¡Bienvenido!");
-                    usuarioActual = data.user;
+                    usuarioActual = { ...data, status: 'aprobado' };
                     localStorage.setItem('kashmoto_session', usuarioActual.phone);
                     cargarDashboard();
                 } else {
-                    mostrarAviso(data.message || "Código incorrecto. Intenta de nuevo.");
+                    showLoader(false);
+                    mostrarAviso("Código incorrecto. Intenta de nuevo.");
                 }
-            } catch (error) {
+            } else {
                 showLoader(false);
-                mostrarAviso("Error de conexión con el servidor.");
+                mostrarAviso("Usuario no encontrado.");
             }
         }
 
@@ -624,6 +671,7 @@ const app = initializeApp(firebaseConfig);
         window.iniciarSesion = async function() {
             let phone = document.getElementById('login-phone').value.trim();
             
+            // Convertir formato: limpia símbolos y cambia el 0 inicial por 58
             phone = phone.replace(/\D/g, ''); 
             if (phone.startsWith('0')) {
                 phone = '58' + phone.substring(1);
@@ -636,36 +684,35 @@ const app = initializeApp(firebaseConfig);
             if(!phone || !pass) return mostrarAviso("Ingresa datos");
             showLoader(true);
 
-            try {
-                const response = await fetch('/api/login', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ phone, password: pass })
-                });
+            const userRef = ref(db, 'users/' + phone);
+            const snapshot = await get(userRef);
+            showLoader(false);
 
-                const data = await response.json();
-                showLoader(false);
-
-                if (response.ok && data.success) {
-                    const usuarioData = data.user;
-                    if(usuarioData.status === 'espera') {
-                        if(usuarioData.otpExpira && usuarioData.otpExpira > Date.now()) {
-                            window.telefonoEnRegistro = usuarioData.phone;
+            if(snapshot.exists()) {
+                const data = snapshot.val();
+                // Encriptamos la contraseña ingresada para compararla con la de la BD
+                const hashedInputPass = await hashPassword(pass); 
+                
+                if(data.password === hashedInputPass) {
+                    // Verificamos si está aprobado o en espera
+                    if(data.status === 'espera') {
+                        if(data.otpExpira && data.otpExpira > Date.now()) {
+                            window.telefonoEnRegistro = data.phone;
+                            iniciarTimerOtp(data.otpExpira);
                             cambiarPantalla('screen-otp-registro');
                         } else {
                             cambiarPantalla('screen-waitlist');
                         }
                     } else {
-                        usuarioActual = usuarioData;
-                        localStorage.setItem('kashmoto_session', usuarioActual.phone); 
+                        usuarioActual = data;
+                        localStorage.setItem('kashmoto_session', usuarioActual.phone); // <-- Mantiene la sesión viva
                         cargarDashboard();
                     }
                 } else {
-                    mostrarAviso(data.message || "Error al iniciar sesión");
+                    mostrarAviso("Contraseña incorrecta");
                 }
-            } catch (error) {
-                showLoader(false);
-                mostrarAviso("Error de red al conectar con el servidor.");
+            } else {
+                mostrarAviso("Usuario no encontrado");
             }
         }
 
