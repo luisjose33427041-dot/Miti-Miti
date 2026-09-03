@@ -56,19 +56,25 @@ export default async function handler(req, res) {
                 return res.status(400).json({ error: 'Fondos insuficientes en el balance del pasajero.' });
             }
 
-            // 2. Ejecutar la transacción con el valor real garantizado
+      // 2. Ejecutar la transacción de forma segura manejando el null especulativo
             const pasajeroResult = await pasajeroRef.transaction((balanceActual) => {
-                const balance = balanceActual || 0;
-                if (balance < cincuentaPorciento) {
-                    return; // Aborta por seguridad si el saldo cambia milisegundos antes
+                // Si la lectura es especulativa (null), devolvemos null para obligar a Firebase 
+                // a comparar los datos con el servidor y traer el saldo real.
+                if (balanceActual === null) {
+                    return null;
                 }
-                return balance - cincuentaPorciento;
+                
+                // Ya tenemos el saldo real. Abortamos si de verdad es insuficiente.
+                if (balanceActual < cincuentaPorciento) {
+                    return; 
+                }
+                return balanceActual - cincuentaPorciento;
             });
 
-            if (!pasajeroResult.committed) {
+            // Validamos que la transacción se haya guardado y no sea null
+            if (!pasajeroResult.committed || pasajeroResult.snapshot.val() === null) {
                 return res.status(400).json({ error: 'Error procesando el saldo. Intente de nuevo.' });
             }
-
             // Acreditar al vendedor
             await vendedorRef.transaction((balanceActual) => {
                 return (balanceActual || 0) + cincuentaPorciento + treintaYCincoPorciento;
