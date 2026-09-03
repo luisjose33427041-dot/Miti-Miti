@@ -269,7 +269,7 @@
                 </div>
             </div>
         </div>
-   <!-- NUEVO MODAL: CÓDIGO OTP PARA EL COMPRADOR -->
+<!-- NUEVO MODAL: CÓDIGO OTP PARA EL COMPRADOR -->
         <div id="modal-otp-comprador" class="modal-transition fixed inset-0 bg-slate-950/95 backdrop-blur-sm z-[100] flex items-center justify-center p-6 opacity-0 pointer-events-none">
             <div class="bg-slate-900 border border-emerald-500/50 w-full max-w-sm p-6 rounded-3xl text-center shadow-[0_0_30px_rgba(16,185,129,0.2)]">
                 <div class="animate-pulse mb-4"><span class="text-4xl">🔐</span></div>
@@ -279,10 +279,13 @@
                     <p class="text-xs text-slate-500 mb-1">Dile este código al vendedor:</p>
                     <p id="otp-codigo-mostrar" class="text-4xl font-extrabold text-emerald-500 tracking-widest">000000</p>
                 </div>
-                <p class="text-xs text-slate-500">Esta ventana se cerrará automáticamente cuando el local confirme la orden.</p>
+                <p class="text-xs text-slate-500 mb-4">Esta ventana se cerrará automáticamente cuando el local confirme la orden.</p>
+                
+                <button onclick="cancelarCompraComprador()" class="w-full bg-red-900/50 text-red-400 border border-red-500/50 py-3 rounded-xl font-bold transition hover:bg-red-900/80">
+                    Anular Compra
+                </button>
             </div>
         </div>
-
         <div id="modal-escaner" class="modal-transition absolute inset-0 bg-slate-950/90 backdrop-blur-sm z-50 flex items-center justify-center p-6 opacity-0 pointer-events-none">
             <div class="bg-slate-900 border border-slate-700 w-full max-w-sm p-6 rounded-3xl overflow-hidden relative">
                 
@@ -1019,7 +1022,13 @@ let tasaActual = 1;
             }
             cerrarModales();
         }
-
+// Si el comprador anula el cobro desde su pantalla OTP
+        window.cancelarCompraComprador = async function() {
+            if(usuarioActual && usuarioActual.phone) {
+                await set(ref(db, 'auth_requests/' + usuarioActual.phone), null); // Borra la petición de la base de datos
+            }
+            document.getElementById('modal-otp-comprador').classList.add('opacity-0', 'pointer-events-none');
+        }
         window.confirmarCompraOTP = async function() {
             const phonePasajero = document.getElementById('scan-pasajero-id').value;
             const codigoIngresado = document.getElementById('scan-otp-input').value;
