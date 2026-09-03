@@ -1,5 +1,6 @@
 import admin from 'firebase-admin';
 
+// Inicializar Firebase Admin de forma segura en el servidor de Vercel
 if (!admin.apps.length) {
     admin.initializeApp({
         credential: admin.credential.cert({
@@ -14,108 +15,95 @@ if (!admin.apps.length) {
 const db = admin.database();
 
 export default async function handler(req, res) {
-    if (req.method !== 'POST') return res.status(405).json({ error: 'Método no permitido' });
+    // Solo permitir peticiones POST por seguridad
+    if (req.method !== 'POST') {
+        return res.status(405).json({ error: 'Método no permitido' });
+    }
 
     const { compradorId, vendedorId, otp } = req.body;
-    if (!compradorId || !vendedorId || !otp) return res.status(400).json({ error: 'Faltan datos.' });
+
+    if (!compradorId || !vendedorId || !otp) {
+        return res.status(400).json({ error: 'Faltan datos en la petición.' });
+    }
 
     try {
         const peticionRef = db.ref(`auth_requests/${compradorId}`);
         const snapPeticion = await peticionRef.once('value');
-        if (!snapPeticion.exists()) return res.status(400).json({ error: 'La solicitud expiró.' });
+
+        if (!snapPeticion.exists()) {
+            return res.status(400).json({ error: 'La solicitud expiró o fue cancelada.' });
+        }
 
         const peticion = snapPeticion.val();
-        if (peticion.otp !== otp) return res.status(400).json({ error: 'Código incorrecto.' });
 
-        // Tasa del día
-        const tasaSnap = await db.ref('admin/tasa').once('value');
-        const tasa = tasaSnap.val() || 1;
+        if (peticion.otp !== otp) {
+            return res.status(400).json({ error: 'El código OTP es incorrecto.' });
+        }
 
-        // Montos y Cálculos
-        const montoBs = Number(peticion.monto);
-        const montoUSD = montoBs / tasa;
+        const monto = Number(peticion.monto);
+        const cincuentaPorciento = monto * 0.50;
+        const treintaYCincoPorciento = monto * 0.35;
 
-        const compradorSnap = await db.ref(`users/${compradorId}`).once('value');
-        const comprador = compradorSnap.val();
-        
-        // Manejo del Crédito
-        const lineaActiva = comprador.linea_credito || 0; 
-        const creditoUsadoUSD = Math.min(lineaActiva, montoUSD); // Usa hasta $10 si el producto vale $20
-        const pagoBolsilloUSD = montoUSD - creditoUsadoUSD; // Los $10 restantes que debe pagar el usuario ya
-        const pagoBolsilloBs = pagoBolsilloUSD * tasa;
-
-        const vendedorDebeRecibirUSD = montoUSD * 0.85; // 85% para el vendedor ($17)
-        const comisionGeneradaUSD = montoUSD * 0.15; // 15% de comisión de la app ($3)
-
-        // Verificaciones de saldo y fondos
         if (peticion.metodo === 'digital') {
-            const balanceReal = comprador.balance || 0;
-            if (balanceReal < pagoBolsilloBs) {
-                return res.status(400).json({ error: `Saldo digital insuficiente para cubrir los Bs ${pagoBolsilloBs.toFixed(2)} faltantes.` });
+            const pasajeroRef = db.ref(`users/${compradorId}/balance`);
+            const vendedorRef = db.ref(`users/${vendedorId}/balance`);
+
+            // 1. Forzar lectura previa para llenar la caché y evitar el null especulativo
+            const snap = await pasajeroRef.once('value');
+            const balanceReal = snap.val() || 0;
+
+            if (balanceReal < cincuentaPorciento) {
+                return res.status(400).json({ error: 'Fondos insuficientes en el balance del pasajero.' });
             }
-        }
 
-        // El colchón necesario (Fondo de Inversión) 
-        // Si el producto vale 20 y usan 10 de crédito, tú pones $7 y guardas $3 en espera.
-        let colchonNecesarioUSD = 0;
-        if (peticion.metodo === 'efectivo') {
-            // Vendedor tiene el "pagoBolsillo" en efectivo físico en la mano.
-            // Para llegar a su 85% digital, el admin completa.
-            colchonNecesarioUSD = vendedorDebeRecibirUSD - pagoBolsilloUSD;
-        } else {
-            // Si es digital, el admin igual transfiere al vendedor, usando saldo digital del usuario y su propio fondo
-            colchonNecesarioUSD = vendedorDebeRecibirUSD - pagoBolsilloUSD;
-        }
-
-        // Si es necesario colchón (porque usó crédito), descontar del fondo seguro
-        if (colchonNecesarioUSD > 0) {
-            const fondoRef = db.ref('admin/fondo');
-            const result = await fondoRef.transaction(fondo => {
-                if (fondo === null) return fondo;
-                if (fondo < colchonNecesarioUSD) return; 
-                return fondo - colchonNecesarioUSD;
+      // 2. Ejecutar la transacción de forma segura manejando el null especulativo
+            const pasajeroResult = await pasajeroRef.transaction((balanceActual) => {
+                // Si la lectura es especulativa (null), devolvemos null para obligar a Firebase 
+                // a comparar los datos con el servidor y traer el saldo real.
+                if (balanceActual === null) {
+                    return null;
+                }
+                
+                // Ya tenemos el saldo real. Abortamos si de verdad es insuficiente.
+                if (balanceActual < cincuentaPorciento) {
+                    return; 
+                }
+                return balanceActual - cincuentaPorciento;
             });
-            if (!result.committed) return res.status(400).json({ error: 'El administrador no tiene colchón de fondo suficiente.' });
-        }
 
-        // ACTUALIZACIONES MASIVAS
-        // 1. Descontar saldo digital del usuario (si aplica)
-        if (peticion.metodo === 'digital' && pagoBolsilloBs > 0) {
-            await db.ref(`users/${compradorId}/balance`).transaction(bal => (bal || 0) - pagoBolsilloBs);
-        }
-
-        // 2. Acreditar saldo digital al vendedor
-        await db.ref(`users/${vendedorId}/balance`).transaction(bal => (bal || 0) + (vendedorDebeRecibirUSD * tasa));
-
-        // 3. Generar Deuda y vaciar línea de crédito al usuario
-        if (creditoUsadoUSD > 0) {
-            await db.ref(`users/${compradorId}/linea_credito`).set(lineaActiva - creditoUsadoUSD);
-            await db.ref(`users/${compradorId}/deuda_credito`).transaction(deuda => (deuda || 0) + creditoUsadoUSD);
-            
-            // 4. Comisión se va a la sección ESPERA
-            await db.ref('admin/comision_espera').transaction(c => (c || 0) + comisionGeneradaUSD);
+            // Validamos que la transacción se haya guardado y no sea null
+            if (!pasajeroResult.committed || pasajeroResult.snapshot.val() === null) {
+                return res.status(400).json({ error: 'Error procesando el saldo. Intente de nuevo.' });
+            }
+            // Acreditar al vendedor
+            await vendedorRef.transaction((balanceActual) => {
+                return (balanceActual || 0) + cincuentaPorciento + treintaYCincoPorciento;
+            });
         } else {
-            // Si no usó crédito, la comisión es libre directamente
-            await db.ref('admin/profit').transaction(p => (p || 0) + comisionGeneradaUSD);
-        }
-
-        // 5. Crear la orden de pago pendiente en BD para recordarle al usuario
-        if(creditoUsadoUSD > 0) {
-            await db.ref('pending_payments').push().set({
-                pasajeroPhone: compradorId,
-                vendedorId: vendedorId,
-                montoUSD: creditoUsadoUSD, // Deuda de $10 exactos
-                comisionAsociadaUSD: comisionGeneradaUSD, // $3 atados a esta deuda
-                colchonAsociadoUSD: colchonNecesarioUSD, // $7 que deben retornar al fondo
-                dueDate: Date.now() + (3 * 24 * 60 * 60 * 1000),
-                status: 'pendiente'
+            // Lógica para efectivo
+            const vendedorRef = db.ref(`users/${vendedorId}/balance`);
+            await vendedorRef.transaction((balanceActual) => {
+                return (balanceActual || 0) + treintaYCincoPorciento;
             });
         }
 
+        // Crear la orden de pago pendiente en la base de datos
+        const pagoRef = db.ref('pending_payments').push();
+        await pagoRef.set({
+            pasajeroPhone: compradorId,
+            motoId: vendedorId,
+            monto: cincuentaPorciento,
+            montoOriginal: monto,
+            dueDate: Date.now() + (3 * 24 * 60 * 60 * 1000),
+            status: 'pendiente'
+        });
+
+        // Borrar la solicitud OTP usada para que no se pueda reutilizar
         await peticionRef.remove();
-        return res.status(200).json({ mensaje: 'Venta exitosa. Transacción procesada por Cash-Compra.' });
+
+        return res.status(200).json({ mensaje: 'Venta procesada de forma 100% segura en el servidor.' });
 
     } catch (error) {
-        return res.status(500).json({ error: 'Error procesando la venta.' });
+        return res.status(500).json({ error: 'Error interno en el servidor procesando la venta.' });
     }
 }
