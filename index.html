@@ -543,44 +543,31 @@ const app = initializeApp(firebaseConfig);
 
             showLoader(true);
             try {
-                const userRef = ref(db, 'users/' + phone);
-                const snapshot = await get(userRef);
-                
-                if(snapshot.exists()) {
-                    showLoader(false);
-                    return mostrarAviso("Este teléfono ya está registrado.");
-                }
-
                 const fotoCaraBase64 = await toBase64(fileCara);
                 const fotoCedulaBase64 = await toBase64(fileCedula);
 
-                const nombreCompleto = `${nombres} ${apellidos}`;
+                const response = await fetch('/api/register', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        rol, nombres, apellidos, nacionalidad, cedulaNum, fechaNac, 
+                        phone, banco, password: pass, emailGoogle, 
+                        fotoCaraBase64, fotoCedulaBase64
+                    })
+                });
 
-// Encriptar la contraseña antes de guardarla en la base de datos
-                const hashedPassword = await hashPassword(pass);
-
-                // status 'espera' (Sin límite de tiempo)
-                const codigoOtp = Math.floor(100000 + Math.random() * 900000).toString();
-
-                const nuevoUsuario = { 
-                    rol, nombre: nombreCompleto, cedula, fechaNac, phone, banco, 
-                    password: hashedPassword, balance: 0, locked: false, status: 'espera',
-                    fotoCara: fotoCaraBase64, fotoCedula: fotoCedulaBase64,
-                    otpRegistro: codigoOtp,
-                    lineaCredito: 0, // Inicia en 0 por defecto
-                    email: emailGoogle
-                };
-                
-                await set(userRef, nuevoUsuario);
-                
-                // Guardar variable temporal para saber a qué usuario validaremos
-                window.telefonoEnRegistro = phone; 
-
+                const data = await response.json();
                 showLoader(false);
-                cambiarPantalla('screen-otp-registro');
+
+                if (response.ok && data.success) {
+                    window.telefonoEnRegistro = phone; 
+                    cambiarPantalla('screen-otp-registro');
+                } else {
+                    mostrarAviso(data.message || "Hubo un error en el registro.");
+                }
             } catch (error) {
                 showLoader(false);
-                mostrarAviso("Hubo un error en el registro. Inténtalo de nuevo.");
+                mostrarAviso("Error de red al conectar con el servidor.");
             }
         }
 
@@ -595,32 +582,31 @@ const app = initializeApp(firebaseConfig);
             if(!window.telefonoEnRegistro) return mostrarAviso("Error de sesión. Recarga la página.");
 
             showLoader(true);
-            const userRef = ref(db, 'users/' + window.telefonoEnRegistro);
-            const snapshot = await get(userRef);
-            
-            if(snapshot.exists()) {
-                const data = snapshot.val();
-                
-                if(data.otpRegistro === inputCodigo) {
-                    const updates = {};
-                    updates[`users/${window.telefonoEnRegistro}/status`] = 'aprobado'; // Cambia status
-                    updates[`users/${window.telefonoEnRegistro}/otpRegistro`] = null; // Limpia BD
-                    
-                    await update(ref(db), updates);
-                    clearInterval(timerOtpInterval);
-                    showLoader(false);
-                    
+            try {
+                const response = await fetch('/api/verificar-otp', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        phone: window.telefonoEnRegistro, 
+                        otp: inputCodigo 
+                    })
+                });
+
+                const data = await response.json();
+                showLoader(false);
+
+                if (response.ok && data.success) {
+                    if(typeof timerOtpInterval !== 'undefined') clearInterval(timerOtpInterval);
                     mostrarAviso("¡Cuenta verificada y aprobada con éxito!", "¡Bienvenido!");
-                    usuarioActual = { ...data, status: 'aprobado' };
+                    usuarioActual = data.user;
                     localStorage.setItem('kashmoto_session', usuarioActual.phone);
                     cargarDashboard();
                 } else {
-                    showLoader(false);
-                    mostrarAviso("Código incorrecto. Intenta de nuevo.");
+                    mostrarAviso(data.message || "Código incorrecto. Intenta de nuevo.");
                 }
-            } else {
+            } catch (error) {
                 showLoader(false);
-                mostrarAviso("Usuario no encontrado.");
+                mostrarAviso("Error de conexión con el servidor.");
             }
         }
 
@@ -638,7 +624,6 @@ const app = initializeApp(firebaseConfig);
         window.iniciarSesion = async function() {
             let phone = document.getElementById('login-phone').value.trim();
             
-            // Convertir formato: limpia símbolos y cambia el 0 inicial por 58
             phone = phone.replace(/\D/g, ''); 
             if (phone.startsWith('0')) {
                 phone = '58' + phone.substring(1);
@@ -651,35 +636,36 @@ const app = initializeApp(firebaseConfig);
             if(!phone || !pass) return mostrarAviso("Ingresa datos");
             showLoader(true);
 
-            const userRef = ref(db, 'users/' + phone);
-            const snapshot = await get(userRef);
-            showLoader(false);
+            try {
+                const response = await fetch('/api/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ phone, password: pass })
+                });
 
-            if(snapshot.exists()) {
-                const data = snapshot.val();
-                // Encriptamos la contraseña ingresada para compararla con la de la BD
-                const hashedInputPass = await hashPassword(pass); 
-                
-                if(data.password === hashedInputPass) {
-                    // Verificamos si está aprobado o en espera
-                    if(data.status === 'espera') {
-                        if(data.otpExpira && data.otpExpira > Date.now()) {
-                            window.telefonoEnRegistro = data.phone;
-                            iniciarTimerOtp(data.otpExpira);
+                const data = await response.json();
+                showLoader(false);
+
+                if (response.ok && data.success) {
+                    const usuarioData = data.user;
+                    if(usuarioData.status === 'espera') {
+                        if(usuarioData.otpExpira && usuarioData.otpExpira > Date.now()) {
+                            window.telefonoEnRegistro = usuarioData.phone;
                             cambiarPantalla('screen-otp-registro');
                         } else {
                             cambiarPantalla('screen-waitlist');
                         }
                     } else {
-                        usuarioActual = data;
-                        localStorage.setItem('kashmoto_session', usuarioActual.phone); // <-- Mantiene la sesión viva
+                        usuarioActual = usuarioData;
+                        localStorage.setItem('kashmoto_session', usuarioActual.phone); 
                         cargarDashboard();
                     }
                 } else {
-                    mostrarAviso("Contraseña incorrecta");
+                    mostrarAviso(data.message || "Error al iniciar sesión");
                 }
-            } else {
-                mostrarAviso("Usuario no encontrado");
+            } catch (error) {
+                showLoader(false);
+                mostrarAviso("Error de red al conectar con el servidor.");
             }
         }
 
