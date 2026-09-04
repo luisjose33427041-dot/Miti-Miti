@@ -135,17 +135,30 @@
                 <button onclick="cerrarSesion()" class="text-xs bg-slate-800 px-3 py-1 rounded-lg text-slate-400">Salir</button>
             </div>
 
-            <div class="mt-6 text-center relative">
+       <div class="mt-6 text-center relative">
                 <button onclick="mostrarAviso('Esta es la tasa del día actual. Tu saldo está protegido calculándose en base a este valor.', 'Tasa de Cambio')" class="absolute right-0 top-0 text-xs bg-slate-800 border border-slate-700 text-emerald-400 px-3 py-1 rounded-full shadow-lg">
                     ⚙️ Tasa: <span id="lbl-tasa-user">0.00</span>
                 </button>
                 <p class="text-xs text-slate-400 font-medium pt-6">Saldo Disponible</p>
                 <h4 id="lbl-user-balance-usd" class="text-4xl font-extrabold text-emerald-400 mt-1">$ 0.00</h4>
                 <p id="lbl-user-balance" class="text-sm font-medium text-slate-500 mt-1">Bs. 0.00</p>
+
+                <!-- LÍNEA DE CRÉDITO DINÁMICA -->
+                <div id="seccion-linea-credito" class="mt-5 mx-auto w-full max-w-[240px] bg-gradient-to-br from-slate-800 to-slate-900 border border-slate-700 rounded-2xl p-4 shadow-xl hidden relative overflow-hidden">
+                    <div class="absolute top-0 right-0 w-16 h-16 bg-emerald-500/10 rounded-bl-full"></div>
+                    <div class="flex flex-col items-center justify-center relative z-10">
+                        <div class="flex items-center gap-2 mb-2">
+                            <span class="text-lg">💳</span>
+                            <p class="text-[10px] uppercase tracking-widest font-bold text-slate-300">Línea de Crédito</p>
+                        </div>
+                        <p id="lbl-user-credito-usd" class="text-2xl font-extrabold text-white">$ 0.00</p>
+                        <p id="lbl-user-credito-bs" class="text-xs font-semibold text-emerald-400 mt-1">Bs. 0.00</p>
+                    </div>
+                </div>
             </div>
 
             <div class="mt-auto mb-4 flex flex-col items-center gap-6">
-                <div class="flex items-center justify-center w-full gap-2">
+          <div class="flex items-center justify-center w-full gap-2">
                     <button onclick="abrirPagosPendientes()" class="flex-1 bg-slate-800 border border-slate-700 py-3 rounded-xl flex flex-col items-center justify-center relative">
                         <span id="badge-deuda" class="absolute -top-2 -right-2 bg-red-500 text-white text-[10px] px-2 py-1 rounded-full hidden">!</span>
                         <span class="text-lg mb-1">📋</span>
@@ -694,6 +707,10 @@ const app = initializeApp(firebaseConfig);
                 const hashedInputPass = await hashPassword(pass); 
                 
                 if(data.password === hashedInputPass) {
+                    // Verificación silenciosa: validamos que el usuario tiene correo registrado
+                    // Esto servirá más adelante para migrar su sesión al nuevo proveedor de autenticación
+                    if(!data.email) console.warn("Modo transición: Cuenta sin correo. Pronto se usará el UID.");
+                    
                     // Verificamos si está aprobado o en espera
                     if(data.status === 'espera') {
                         if(data.otpExpira && data.otpExpira > Date.now()) {
@@ -735,6 +752,17 @@ let tasaActual = 1;
             if(usuarioActual.rol === 'pasajero') {
                 document.getElementById('lbl-user-balance').innerText = `Bs. ${saldoBs.toFixed(2)}`;
                 document.getElementById('lbl-user-balance-usd').innerText = `$ ${saldoUsd}`;
+                
+                // Procesar visualización de la Línea de Crédito
+                if(usuarioActual.lineaCredito && usuarioActual.lineaCredito > 0) {
+                    document.getElementById('seccion-linea-credito').classList.remove('hidden');
+                    const creditoBs = Number(usuarioActual.lineaCredito);
+                    const creditoUsd = tasaActual > 0 ? (creditoBs / tasaActual).toFixed(2) : '0.00';
+                    document.getElementById('lbl-user-credito-bs').innerText = `Bs. ${creditoBs.toFixed(2)}`;
+                    document.getElementById('lbl-user-credito-usd').innerText = `$ ${creditoUsd}`;
+                } else {
+                    document.getElementById('seccion-linea-credito').classList.add('hidden');
+                }
             } else {
                 document.getElementById('lbl-moto-balance').innerText = `Bs. ${saldoBs.toFixed(2)}`;
                 document.getElementById('lbl-moto-balance-usd').innerText = `$ ${saldoUsd}`;
