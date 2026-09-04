@@ -142,38 +142,18 @@
                 <p class="text-xs text-slate-400 font-medium pt-6">Saldo Disponible</p>
                 <h4 id="lbl-user-balance-usd" class="text-4xl font-extrabold text-emerald-400 mt-1">$ 0.00</h4>
                 <p id="lbl-user-balance" class="text-sm font-medium text-slate-500 mt-1">Bs. 0.00</p>
-            </div>
-
-<!-- TARJETA DE LÍNEA DE CRÉDITO -->
-            <div id="card-credito-user" class="hidden mt-4 w-full bg-slate-900 border border-blue-500/50 p-4 rounded-2xl shadow-[0_0_15px_rgba(59,130,246,0.15)] relative overflow-hidden">
-                <div class="absolute top-0 left-0 w-1 h-full bg-blue-500"></div>
-                <div class="flex justify-between items-center mb-3">
-                    <h4 class="text-sm font-bold text-white flex items-center gap-2">
-                        <span class="bg-blue-500/20 text-blue-400 px-2 py-0.5 rounded text-[10px] uppercase tracking-wider border border-blue-500/30">Línea de Crédito Asignada</span>
-                    </h4>
-                </div>
                 
-                <div class="flex justify-between items-end border-b border-slate-800 pb-3 mb-3">
-                    <div>
-                        <p class="text-[10px] text-slate-500 uppercase tracking-widest font-bold">Monto Total</p>
-                        <p id="lbl-credito-total-usd" class="text-lg font-bold text-slate-300 mt-0.5">$ 0.00</p>
-                    </div>
-                    <p id="lbl-credito-total-bs" class="text-xs font-medium text-slate-500">Bs. 0.00</p>
-                </div>
-
-                <div class="flex justify-between items-end">
-                    <div>
-                        <p class="text-[10px] text-blue-400 uppercase tracking-widest font-bold">Crédito Disponible</p>
-                        <p id="lbl-credito-disp-usd" class="text-2xl font-extrabold text-blue-400 mt-0.5">$ 0.00</p>
-                    </div>
-                    <p id="lbl-credito-disp-bs" class="text-sm font-medium text-blue-300">Bs. 0.00</p>
+                <!-- NUEVA TARJETA: LÍNEA DE CRÉDITO DISPONIBLE -->
+                <div class="mt-3 bg-slate-800/60 border border-slate-700/60 p-3 rounded-2xl text-center">
+                    <p class="text-[11px] text-slate-400 font-medium">Crédito Disponible</p>
+                    <p id="lbl-user-credit" class="text-sm font-bold text-emerald-400 mt-0.5">$ 0.00 / Bs. 0.00</p>
                 </div>
             </div>
 
-            <div class="mt-auto mb-4 flex flex-col items-center gap-6 mt-8">
+            <div class="mt-auto mb-4 flex flex-col items-center gap-6">
                 <div class="flex items-center justify-center w-full gap-2">
                     <button onclick="abrirPagosPendientes()" class="flex-1 bg-slate-800 border border-slate-700 py-3 rounded-xl flex flex-col items-center justify-center relative">
-         <span id="badge-deuda" class="absolute -top-2 -right-2 bg-red-500 text-white text-[10px] px-2 py-1 rounded-full hidden">!</span>
+                        <span id="badge-deuda" class="absolute -top-2 -right-2 bg-red-500 text-white text-[10px] px-2 py-1 rounded-full hidden">!</span>
                         <span class="text-lg mb-1">📋</span>
                         <span class="text-[10px] font-bold text-white text-center leading-tight">Pagar</span>
                     </button>
@@ -428,32 +408,8 @@ const app = initializeApp(firebaseConfig);
        // Variables de sesión en memoria (Sin LocalStorage)
         let usuarioActual = null;
         let qrCodeObj = null;
-        let unsubscribeCredito = null;
 
         const numAdminWhatsapp = "584241959869"; // Número configurado para WhatsApp
-
-        window.iniciarEscuchaCredito = function(phone) {
-            if (unsubscribeCredito) unsubscribeCredito(); 
-            const cardCredito = document.getElementById('card-credito-user');
-            if(!cardCredito) return;
-
-            unsubscribeCredito = onValue(ref(db, `creditos/${phone}`), (snapshot) => {
-                if (snapshot.exists()) {
-                    const datos = snapshot.val();
-                    const curTasa = (typeof tasaActual !== 'undefined') ? tasaActual : 1;
-                    const dispUsd = (datos.disponible_bs / curTasa).toFixed(2);
-                    
-                    document.getElementById('lbl-credito-total-usd').innerText = `$ ${datos.limite_usd.toFixed(2)}`;
-                    document.getElementById('lbl-credito-total-bs').innerText = `Bs. ${datos.limite_bs.toFixed(2)}`;
-                    document.getElementById('lbl-credito-disp-usd').innerText = `$ ${dispUsd}`;
-                    document.getElementById('lbl-credito-disp-bs').innerText = `Bs. ${datos.disponible_bs.toFixed(2)}`;
-                    
-                    cardCredito.classList.remove('hidden');
-                } else {
-                    cardCredito.classList.add('hidden');
-                }
-            });
-        };
         
         // UI toggles
         window.mostrarRegistro = () => { document.getElementById('login-form').classList.add('hidden'); document.getElementById('register-form').classList.remove('hidden'); }
@@ -696,7 +652,6 @@ const app = initializeApp(firebaseConfig);
                     mostrarAviso("¡Cuenta verificada y aprobada con éxito!", "¡Bienvenido!");
                     usuarioActual = { ...data, status: 'aprobado' };
                     localStorage.setItem('kashmoto_session', usuarioActual.phone);
-                    if (window.iniciarEscuchaCredito) iniciarEscuchaCredito(usuarioActual.phone);
                     cargarDashboard();
                 } else {
                     showLoader(false);
@@ -757,7 +712,6 @@ const app = initializeApp(firebaseConfig);
                     } else {
                         usuarioActual = data;
                         localStorage.setItem('kashmoto_session', usuarioActual.phone); // <-- Mantiene la sesión viva
-                        if (window.iniciarEscuchaCredito) iniciarEscuchaCredito(usuarioActual.phone);
                         cargarDashboard();
                     }
                 } else {
@@ -787,6 +741,18 @@ let tasaActual = 1;
             if(usuarioActual.rol === 'pasajero') {
                 document.getElementById('lbl-user-balance').innerText = `Bs. ${saldoBs.toFixed(2)}`;
                 document.getElementById('lbl-user-balance-usd').innerText = `$ ${saldoUsd}`;
+                
+                // Cálculo de Crédito Disponible (USD y Bs)
+                const lineaUsd = Number(usuarioActual.lineaCreditoUsd || 0);
+                const usadaBs = Number(usuarioActual.lineaCreditoUsadaBs || 0);
+                
+                const creditoUsdDisponible = Math.max(0, lineaUsd - (tasaActual > 0 ? usadaBs / tasaActual : 0));
+                const creditoBsDisponible = Math.max(0, (lineaUsd * tasaActual) - usadaBs);
+                
+                const elemCredito = document.getElementById('lbl-user-credit');
+                if(elemCredito) {
+                    elemCredito.innerText = `$ ${creditoUsdDisponible.toFixed(2)} / Bs. ${creditoBsDisponible.toFixed(2)}`;
+                }
             } else {
                 document.getElementById('lbl-moto-balance').innerText = `Bs. ${saldoBs.toFixed(2)}`;
                 document.getElementById('lbl-moto-balance-usd').innerText = `$ ${saldoUsd}`;
