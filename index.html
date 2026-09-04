@@ -142,25 +142,38 @@
                 <p class="text-xs text-slate-400 font-medium pt-6">Saldo Disponible</p>
                 <h4 id="lbl-user-balance-usd" class="text-4xl font-extrabold text-emerald-400 mt-1">$ 0.00</h4>
                 <p id="lbl-user-balance" class="text-sm font-medium text-slate-500 mt-1">Bs. 0.00</p>
+            </div>
+
+<!-- TARJETA DE LÍNEA DE CRÉDITO -->
+            <div id="card-credito-user" class="hidden mt-4 w-full bg-slate-900 border border-blue-500/50 p-4 rounded-2xl shadow-[0_0_15px_rgba(59,130,246,0.15)] relative overflow-hidden">
+                <div class="absolute top-0 left-0 w-1 h-full bg-blue-500"></div>
+                <div class="flex justify-between items-center mb-3">
+                    <h4 class="text-sm font-bold text-white flex items-center gap-2">
+                        <span class="bg-blue-500/20 text-blue-400 px-2 py-0.5 rounded text-[10px] uppercase tracking-wider border border-blue-500/30">Línea de Crédito Asignada</span>
+                    </h4>
+                </div>
                 
-                <!-- Sección de Línea de Crédito -->
-                <div id="seccion-credito-user" class="mt-4 bg-slate-800/40 border border-slate-700 p-4 rounded-2xl hidden mx-auto max-w-xs shadow-inner">
-                    <p class="text-[10px] text-slate-400 uppercase tracking-widest font-bold mb-2">Tu Línea de Crédito</p>
-                    <div class="flex justify-between items-center border-b border-slate-700/50 pb-2 mb-2">
-                        <span class="text-xs text-slate-400">Total Otorgado:</span>
-                        <span id="lbl-credito-total" class="font-bold text-slate-200 text-sm"></span>
+                <div class="flex justify-between items-end border-b border-slate-800 pb-3 mb-3">
+                    <div>
+                        <p class="text-[10px] text-slate-500 uppercase tracking-widest font-bold">Monto Total</p>
+                        <p id="lbl-credito-total-usd" class="text-lg font-bold text-slate-300 mt-0.5">$ 0.00</p>
                     </div>
-                    <div class="flex justify-between items-center">
-                        <span class="text-xs text-emerald-400 font-bold">Disponible para usar:</span>
-                        <span id="lbl-credito-disponible" class="font-bold text-emerald-400 text-lg"></span>
+                    <p id="lbl-credito-total-bs" class="text-xs font-medium text-slate-500">Bs. 0.00</p>
+                </div>
+
+                <div class="flex justify-between items-end">
+                    <div>
+                        <p class="text-[10px] text-blue-400 uppercase tracking-widest font-bold">Crédito Disponible</p>
+                        <p id="lbl-credito-disp-usd" class="text-2xl font-extrabold text-blue-400 mt-0.5">$ 0.00</p>
                     </div>
+                    <p id="lbl-credito-disp-bs" class="text-sm font-medium text-blue-300">Bs. 0.00</p>
                 </div>
             </div>
 
-            <div class="mt-auto mb-4 flex flex-col items-center gap-6">
+            <div class="mt-auto mb-4 flex flex-col items-center gap-6 mt-8">
                 <div class="flex items-center justify-center w-full gap-2">
                     <button onclick="abrirPagosPendientes()" class="flex-1 bg-slate-800 border border-slate-700 py-3 rounded-xl flex flex-col items-center justify-center relative">
-                        <span id="badge-deuda" class="absolute -top-2 -right-2 bg-red-500 text-white text-[10px] px-2 py-1 rounded-full hidden">!</span>
+         <span id="badge-deuda" class="absolute -top-2 -right-2 bg-red-500 text-white text-[10px] px-2 py-1 rounded-full hidden">!</span>
                         <span class="text-lg mb-1">📋</span>
                         <span class="text-[10px] font-bold text-white text-center leading-tight">Pagar</span>
                     </button>
@@ -415,8 +428,32 @@ const app = initializeApp(firebaseConfig);
        // Variables de sesión en memoria (Sin LocalStorage)
         let usuarioActual = null;
         let qrCodeObj = null;
+        let unsubscribeCredito = null;
 
         const numAdminWhatsapp = "584241959869"; // Número configurado para WhatsApp
+
+        window.iniciarEscuchaCredito = function(phone) {
+            if (unsubscribeCredito) unsubscribeCredito(); 
+            const cardCredito = document.getElementById('card-credito-user');
+            if(!cardCredito) return;
+
+            unsubscribeCredito = onValue(ref(db, `creditos/${phone}`), (snapshot) => {
+                if (snapshot.exists()) {
+                    const datos = snapshot.val();
+                    const curTasa = (typeof tasaActual !== 'undefined') ? tasaActual : 1;
+                    const dispUsd = (datos.disponible_bs / curTasa).toFixed(2);
+                    
+                    document.getElementById('lbl-credito-total-usd').innerText = `$ ${datos.limite_usd.toFixed(2)}`;
+                    document.getElementById('lbl-credito-total-bs').innerText = `Bs. ${datos.limite_bs.toFixed(2)}`;
+                    document.getElementById('lbl-credito-disp-usd').innerText = `$ ${dispUsd}`;
+                    document.getElementById('lbl-credito-disp-bs').innerText = `Bs. ${datos.disponible_bs.toFixed(2)}`;
+                    
+                    cardCredito.classList.remove('hidden');
+                } else {
+                    cardCredito.classList.add('hidden');
+                }
+            });
+        };
         
         // UI toggles
         window.mostrarRegistro = () => { document.getElementById('login-form').classList.add('hidden'); document.getElementById('register-form').classList.remove('hidden'); }
@@ -659,6 +696,7 @@ const app = initializeApp(firebaseConfig);
                     mostrarAviso("¡Cuenta verificada y aprobada con éxito!", "¡Bienvenido!");
                     usuarioActual = { ...data, status: 'aprobado' };
                     localStorage.setItem('kashmoto_session', usuarioActual.phone);
+                    if (window.iniciarEscuchaCredito) iniciarEscuchaCredito(usuarioActual.phone);
                     cargarDashboard();
                 } else {
                     showLoader(false);
@@ -719,6 +757,7 @@ const app = initializeApp(firebaseConfig);
                     } else {
                         usuarioActual = data;
                         localStorage.setItem('kashmoto_session', usuarioActual.phone); // <-- Mantiene la sesión viva
+                        if (window.iniciarEscuchaCredito) iniciarEscuchaCredito(usuarioActual.phone);
                         cargarDashboard();
                     }
                 } else {
@@ -1158,28 +1197,6 @@ let tasaActual = 1;
                 }
             }
         };
-    // AÑADIDO: Listener en tiempo real para pintar la línea de crédito
-        let creditoListenerOn = false;
-        setInterval(() => {
-            const authIdGuardado = localStorage.getItem('kashmoto_session');
-            // Verificamos si estamos en el dashboard y que no se haya activado el listener ya
-            if (authIdGuardado && !creditoListenerOn) {
-                const uDashboard = document.getElementById('screen-dashboard-user');
-                if (uDashboard && !uDashboard.classList.contains('hidden')) {
-                    creditoListenerOn = true;
-                    onValue(ref(db, 'users/' + authIdGuardado), (snapshot) => {
-                        if (snapshot.exists()) {
-                            const u = snapshot.val();
-                            if (u.rol === 'pasajero' && u.linea_credito_usd !== undefined) {
-                                document.getElementById('seccion-credito-user').classList.remove('hidden');
-                                document.getElementById('lbl-credito-total').innerText = `$${u.linea_credito_usd} / Bs. ${Number(u.linea_credito_bs || 0).toFixed(2)}`;
-                                document.getElementById('lbl-credito-disponible').innerText = `Bs. ${Number(u.credito_disponible_bs || 0).toFixed(2)}`;
-                            }
-                        }
-                    });
-                }
-            }
-        }, 1500);
     </script>
 </body>
 </html>
