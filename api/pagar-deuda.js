@@ -20,7 +20,6 @@ export default async function handler(req, res) {
     if (!usuarioPhone || !pagoId) return res.status(400).json({ error: 'Faltan datos.' });
 
     try {
-        // 1. Buscar la deuda en la base de datos (No confiamos en lo que mande el frontend)
         const pagoRef = db.ref(`pending_payments/${pagoId}`);
         const pagoSnap = await pagoRef.once('value');
         
@@ -30,33 +29,41 @@ export default async function handler(req, res) {
         if (pago.pasajeroPhone !== usuarioPhone) return res.status(403).json({ error: 'Esta deuda no te pertenece.' });
         if (pago.status !== 'pendiente') return res.status(400).json({ error: 'Este pago ya fue procesado.' });
 
-        const montoPagar = Number(pago.monto);
-        const adminGanancia = Number(pago.montoOriginal) * 0.15;
+        const montoPagar = Number(pago.monto); // 50% financiado en Bs.
+        const adminGanancia = Number(pago.montoOriginal) * 0.15; // 15% comisión retenida
 
-        // 1.5 Definir la referencia del saldo del usuario en la base de datos
+        // Obtener tasa para la reposición del Fondo Admin en USD
+        const snapTasa = await db.ref('admin/tasa').once('value');
+        const tasa = Number(snapTasa.val()) || 1;
+        const montoUSDReposicion = montoPagar / tasa;
+
         const userBalanceRef = db.ref(`users/${usuarioPhone}/balance`);
 
-   // 2. Restar saldo al usuario de forma atómica y segura
+        // 1. Restar saldo al usuario
         const result = await userBalanceRef.transaction((balanceActual) => {
-            if (balanceActual === null) {
-                return null; // Evita que aborte en la primera lectura especulativa
-            }
-            if (balanceActual < montoPagar) {
-                return; 
-            }
+            if (balanceActual === null) return null;
+            if (balanceActual < montoPagar) return; 
             return balanceActual - montoPagar;
         });
 
         if (!result.committed || result.snapshot.val() === null) {
-            return res.status(400).json({ error: 'Saldo insuficiente.' });
+            return res.status(400).json({ error: 'Saldo insuficiente para saldar la deuda.' });
         }
-        // 3. Sumar ganancia al administrador
+
+        // 2. Liberar Línea de Crédito (Resta a lineaCreditoUsadaBs)
+        await db.ref(`users/${usuarioPhone}/lineaCreditoUsadaBs`).transaction((usado) => Math.max(0, (usado || 0) - montoPagar));
+
+        // 3. Reponer Capital Financiado al Fondo Admin en USD (admin/fondoUsd += C)
+        await db.ref('admin/fondoUsd').transaction((fondo) => (fondo || 0) + montoUSDReposicion);
+
+        // 4. Liberar Comisión Retenida -> Ganancia Neta
+        await db.ref('admin/comisionEspera').transaction((comision) => Math.max(0, (comision || 0) - adminGanancia));
         await db.ref('admin/profit').transaction((ganancia) => (ganancia || 0) + adminGanancia);
         
-        // 4. Marcar deuda como pagada
+        // 5. Marcar deuda como pagada
         await pagoRef.update({ status: 'pagado' });
 
-        return res.status(200).json({ mensaje: 'Pago realizado exitosamente.' });
+        return res.status(200).json({ mensaje: 'Pago realizado exitosamente y línea de crédito liberada.' });
     } catch (error) {
         return res.status(500).json({ error: 'Error del servidor al procesar el pago.' });
     }
