@@ -654,24 +654,26 @@ const app = initializeApp(firebaseConfig);
                 }
 
                 if(data.otpRegistro === inputCodigo) {
-                    const updates = {};
-                    updates[`users/${window.telefonoEnRegistro}/status`] = 'aprobado'; // Cambia status
-                    updates[`users/${window.telefonoEnRegistro}/otpRegistro`] = null; // Limpia BD
-                    updates[`users/${window.telefonoEnRegistro}/otpExpira`] = null; // Limpia BD
-                    
-                    await update(ref(db), updates);
-                    clearInterval(timerOtpInterval);
-                    showLoader(false);
-                    
-                    mostrarAviso("¡Cuenta verificada y aprobada con éxito!", "¡Bienvenido!");
-                    usuarioActual = { ...data, status: 'aprobado' };
-                    localStorage.setItem('kashmoto_session', usuarioActual.phone);
-                    cargarDashboard();
-                } else {
-                    showLoader(false);
-                    mostrarAviso("Código incorrecto. Intenta de nuevo.");
-                }
-            } else {
+                        try {
+                            const userRefToUpdate = ref(db, 'users/' + window.telefonoEnRegistro);
+                            await update(userRefToUpdate, {
+                                status: 'aprobado',
+                                otpRegistro: null,
+                                otpExpira: null
+                            });
+                            
+                            clearInterval(timerOtpInterval);
+                            showLoader(false);
+                            
+                            mostrarAviso("¡Cuenta verificada y aprobada con éxito!", "¡Bienvenido!");
+                            usuarioActual = { ...data, status: 'aprobado' };
+                            localStorage.setItem('kashmoto_session', usuarioActual.phone);
+                            cargarDashboard();
+                        } catch (error) {
+                            showLoader(false);
+                            mostrarAviso("Error al guardar en base de datos: " + error.message);
+                        }
+                    } else {
                 showLoader(false);
                 mostrarAviso("Usuario no encontrado.");
             }
