@@ -15,7 +15,6 @@ if (!admin.apps.length) {
 const db = admin.database();
 
 export default async function handler(req, res) {
-    // Solo permitir peticiones POST por seguridad
     if (req.method !== 'POST') {
         return res.status(405).json({ error: 'Método no permitido' });
     }
@@ -43,67 +42,81 @@ export default async function handler(req, res) {
         const monto = Number(peticion.monto);
         const cincuentaPorciento = monto * 0.50;
         const treintaYCincoPorciento = monto * 0.35;
+        const quincePorciento = monto * 0.15;
 
-        if (peticion.metodo === 'digital') {
-            const pasajeroRef = db.ref(`users/${compradorId}/balance`);
-            const vendedorRef = db.ref(`users/${vendedorId}/balance`);
+        // 1. Verificar y descontar el 35% del Fondo de Financiamiento del Admin
+        const fondoRef = db.ref('admin/fondo');
+        const snapFondo = await fondoRef.once('value');
+        const fondoActual = snapFondo.val() || 0;
 
-            // 1. Forzar lectura previa para llenar la caché y evitar el null especulativo
-            const snap = await pasajeroRef.once('value');
-            const balanceReal = snap.val() || 0;
-
-            if (balanceReal < cincuentaPorciento) {
-                return res.status(400).json({ error: 'Fondos insuficientes en el balance del pasajero.' });
-            }
-
-      // 2. Ejecutar la transacción de forma segura manejando el null especulativo
-            const pasajeroResult = await pasajeroRef.transaction((balanceActual) => {
-                // Si la lectura es especulativa (null), devolvemos null para obligar a Firebase 
-                // a comparar los datos con el servidor y traer el saldo real.
-                if (balanceActual === null) {
-                    return null;
-                }
-                
-                // Ya tenemos el saldo real. Abortamos si de verdad es insuficiente.
-                if (balanceActual < cincuentaPorciento) {
-                    return; 
-                }
-                return balanceActual - cincuentaPorciento;
-            });
-
-            // Validamos que la transacción se haya guardado y no sea null
-            if (!pasajeroResult.committed || pasajeroResult.snapshot.val() === null) {
-                return res.status(400).json({ error: 'Error procesando el saldo. Intente de nuevo.' });
-            }
-            // Acreditar al vendedor
-            await vendedorRef.transaction((balanceActual) => {
-                return (balanceActual || 0) + cincuentaPorciento + treintaYCincoPorciento;
-            });
-        } else {
-            // Lógica para efectivo
-            const vendedorRef = db.ref(`users/${vendedorId}/balance`);
-            await vendedorRef.transaction((balanceActual) => {
-                return (balanceActual || 0) + treintaYCincoPorciento;
-            });
+        if (fondoActual < treintaYCincoPorciento) {
+            return res.status(400).json({ error: 'El Fondo de Financiamiento no cuenta con suficiente liquidez para procesar este financiamiento.' });
         }
 
-        // Crear la orden de pago pendiente en la base de datos
+        // Descontar el 35% del fondo del administrador
+        await fondoRef.transaction((f) => (f || 0) - treintaYCincoPorciento);
+
+        // 2. Procesar cobro inicial del 50% al comprador (Si es método digital)
+        if (peticion.metodo === 'digital') {
+            const userRef = db.ref(`users/${compradorId}`);
+            const snapUser = await userRef.once('value');
+            if (!snapUser.exists()) {
+                await fondoRef.transaction((f) => (f || 0) + treintaYCincoPorciento); // Revertir fondo
+                return res.status(400).json({ error: 'Usuario comprador no encontrado.' });
+            }
+
+            const userData = snapUser.val();
+            const balanceActual = Number(userData.balance || 0);
+            const creditoDisponible = Number(userData.credito_disponible_bs || 0);
+
+            // Verificar si el comprador tiene cobro por saldo o por línea de crédito
+            if (balanceActual >= cincuentaPorciento) {
+                await db.ref(`users/${compradorId}/balance`).transaction((b) => (b || 0) - cincuentaPorciento);
+            } else if (creditoDisponible >= cincuentaPorciento) {
+                await db.ref(`users/${compradorId}/credito_disponible_bs`).transaction((c) => (c || 0) - cincuentaPorciento);
+            } else if ((balanceActual + creditoDisponible) >= cincuentaPorciento) {
+                const restante = cincuentaPorciento - balanceActual;
+                await db.ref(`users/${compradorId}/balance`).set(0);
+                await db.ref(`users/${compradorId}/credito_disponible_bs`).transaction((c) => (c || 0) - restante);
+            } else {
+                await fondoRef.transaction((f) => (f || 0) + treintaYCincoPorciento); // Revertir fondo
+                return res.status(400).json({ error: 'Fondos y crédito insuficiente para realizar la compra.' });
+            }
+
+            // Acreditar al vendedor (50% pagado por comprador + 35% del fondo = 85%)
+            const vendedorRef = db.ref(`users/${vendedorId}/balance`);
+            await vendedorRef.transaction((b) => (b || 0) + cincuentaPorciento + treintaYCincoPorciento);
+
+        } else {
+            // Método efectivo: El comprador le paga el 50% en mano al vendedor
+            // Acreditar al vendedor el 35% del fondo en su balance de la app
+            const vendedorRef = db.ref(`users/${vendedorId}/balance`);
+            await vendedorRef.transaction((b) => (b || 0) + treintaYCincoPorciento);
+        }
+
+        // 3. Sumar el 15% a la Comisión en Espera del administrador
+        await db.ref('admin/comision_espera').transaction((c) => (c || 0) + quincePorciento);
+
+        // 4. Crear la orden de pago pendiente por el 50% restante
         const pagoRef = db.ref('pending_payments').push();
         await pagoRef.set({
             pasajeroPhone: compradorId,
             motoId: vendedorId,
             monto: cincuentaPorciento,
             montoOriginal: monto,
+            comisionEspera: quincePorciento,
+            financiamientoFondo: treintaYCincoPorciento,
             dueDate: Date.now() + (3 * 24 * 60 * 60 * 1000),
             status: 'pendiente'
         });
 
-        // Borrar la solicitud OTP usada para que no se pueda reutilizar
+        // Eliminar solicitud OTP procesada
         await peticionRef.remove();
 
-        return res.status(200).json({ mensaje: 'Venta procesada de forma 100% segura en el servidor.' });
+        return res.status(200).json({ mensaje: 'Venta procesada exitosamente.' });
 
     } catch (error) {
+        console.error("Error procesando venta:", error);
         return res.status(500).json({ error: 'Error interno en el servidor procesando la venta.' });
     }
 }
