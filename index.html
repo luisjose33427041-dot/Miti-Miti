@@ -1148,3 +1148,419 @@ let tasaActual = 1;
     </script>
 </body>
 </html>
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cash-Compra - Panel Admin</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style> body { font-family: 'Plus Jakarta Sans', sans-serif; background-color: #020617; color: #f8fafc; } </style>
+</head>
+<body class="p-4 sm:p-8">
+
+    <!-- PANTALLA DE LOGIN ADMIN CON GOOGLE -->
+    <div id="admin-login-screen" class="fixed inset-0 bg-[#020617] z-[100] flex flex-col items-center justify-center p-6">
+        <div class="bg-slate-900 border border-slate-800 p-8 rounded-3xl shadow-2xl max-w-sm w-full text-center">
+            <h1 class="text-3xl font-extrabold text-white mb-2">Admin <span class="text-emerald-500">Panel</span></h1>
+            <p class="text-slate-400 text-sm mb-8">Acceso exclusivo mediante correo autorizado de Google.</p>
+            <button onclick="loginAdminGoogle()" class="w-full bg-white text-slate-900 font-bold py-4 rounded-xl flex items-center justify-center gap-3 transition hover:bg-slate-200 shadow-lg">
+                <svg class="w-6 h-6" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
+                Ingresar con Google
+            </button>
+        </div>
+    </div>
+
+    <!-- SE ENCAPSULA EL DASHBOARD PARA OCULTARLO HASTA QUE SE INICIE SESIÓN -->
+    <div id="admin-dashboard" class="max-w-4xl mx-auto space-y-6 hidden">
+        
+        <div class="bg-slate-900 border border-slate-800 p-6 rounded-3xl shadow-xl flex justify-between items-center">
+            <div>
+                <h1 class="text-3xl font-extrabold text-white">Taquilla Admin</h1>
+                <p class="text-emerald-500 font-medium">Control de KashMoto</p>
+            </div>
+            <div class="text-right">
+                <p class="text-xs text-slate-400">Tus Ganancias (15%)</p>
+                <h2 id="admin-profit" class="text-3xl font-bold text-emerald-400">Bs. 0.00</h2>
+            </div>
+        </div>
+            <div class="flex flex-col md:flex-row justify-between md:items-center mb-6 gap-4">
+                <h2 class="text-xl font-bold text-white">⚙️ Control de Accesos</h2>
+                <div class="flex gap-4">
+                    <div class="bg-slate-800 px-4 py-2 rounded-xl text-center">
+                        <p class="text-[10px] text-slate-400 uppercase tracking-widest">Motos Activas</p>
+                        <p id="count-motos" class="text-2xl font-bold text-emerald-400">0 <span class="text-sm text-slate-500">/ 10</span></p>
+                    </div>
+                    <div class="bg-slate-800 px-4 py-2 rounded-xl text-center">
+                        <p class="text-[10px] text-slate-400 uppercase tracking-widest">Pasajeros</p>
+                        <p id="count-pasajeros" class="text-2xl font-bold text-blue-400">0 <span class="text-sm text-slate-500">/ 150</span></p>
+                    </div>
+                </div>
+            </div>
+
+            <h3 class="text-sm font-bold text-slate-300 mb-3">Lista de Espera (Nuevos Registros)</h3>
+            <div class="max-h-60 overflow-y-auto bg-slate-800/50 border border-slate-700 rounded-xl p-2 mb-6" id="lista-espera">
+                <!-- Usuarios en espera aparecerán aquí -->
+            </div>
+
+            <h3 class="text-sm font-bold text-slate-300 mb-3">Usuarios Aprobados</h3>
+            <div class="max-h-60 overflow-y-auto bg-slate-800/50 border border-slate-700 rounded-xl p-2 mb-4" id="lista-aprobados">
+                <!-- Usuarios aprobados aparecerán aquí -->
+            </div>
+        </div>
+
+        <!-- Modal Expediente Oculto -->
+        <div id="modal-expediente" class="fixed inset-0 bg-slate-950/90 backdrop-blur-md z-50 flex items-center justify-center p-4 opacity-0 pointer-events-none transition-opacity duration-300">
+            <div class="bg-slate-900 border border-slate-700 w-full max-w-xl p-6 rounded-3xl max-h-[95vh] overflow-y-auto relative shadow-2xl">
+                <button onclick="cerrarExpediente()" class="absolute top-4 right-4 text-slate-400 hover:text-white font-bold text-3xl">&times;</button>
+                <h4 class="text-2xl font-bold text-white mb-4 border-b border-slate-700 pb-2">Expediente del Usuario</h4>
+                
+                <div id="exp-datos" class="text-slate-300 space-y-2 mb-6 text-sm grid grid-cols-2 gap-x-4">
+                    <!-- Datos inyectados por JS -->
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
+                    <div>
+                        <p class="text-xs text-slate-400 mb-2 font-bold uppercase tracking-wider">Foto de la Cara</p>
+                        <img id="exp-foto-cara" src="" class="w-full rounded-xl border border-slate-700 object-contain h-48 bg-slate-950">
+                    </div>
+                    <div>
+                        <p class="text-xs text-slate-400 mb-2 font-bold uppercase tracking-wider">Cédula de Identidad</p>
+                        <img id="exp-foto-cedula" src="" class="w-full rounded-xl border border-slate-700 object-contain h-48 bg-slate-950">
+                    </div>
+                </div>
+
+                <button id="btn-aprobar-expediente" class="w-full bg-emerald-500 hover:bg-emerald-600 text-slate-900 font-bold py-4 rounded-xl transition text-lg shadow-lg shadow-emerald-500/20">
+                    Descargar Fotos y Enviar Código
+                </button>
+            </div>
+        </div>
+<div class="bg-slate-900 border border-slate-800 p-6 rounded-3xl shadow-xl mb-6">
+            <h2 class="text-xl font-bold text-white mb-4">⚙️ Configurar Tasa del Día</h2>
+            <div class="flex flex-col sm:flex-row gap-4 items-center">
+                <input type="number" id="admin-input-tasa" placeholder="Monto Ej: 36.50" class="w-full sm:flex-1 bg-slate-800 border border-slate-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-emerald-500">
+                <button onclick="guardarTasa()" class="w-full sm:w-auto bg-emerald-500 hover:bg-emerald-600 text-slate-900 font-bold py-3 px-6 rounded-xl transition">Actualizar Tasa</button>
+            </div>
+            <p class="text-xs text-slate-400 mt-3">Tasa actual en sistema: <span id="lbl-admin-tasa-actual" class="font-bold text-emerald-400 text-sm">Cargando...</span></p>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            
+            <div class="bg-slate-900 border border-slate-800 p-6 rounded-3xl shadow-xl">
+                <h2 class="text-xl font-bold text-white mb-4">💳 Recargar a Pasajero</h2>
+                <div class="space-y-4">
+                    <input type="text" id="topup-id" placeholder="ID (Teléfono del Pasajero)" class="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-emerald-500">
+                    <input type="number" id="topup-amount" placeholder="Monto en Bs" class="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-emerald-500">
+                    <button onclick="recargarSaldo()" class="w-full bg-emerald-500 hover:bg-emerald-600 text-slate-900 font-bold py-3 rounded-xl transition">Acreditar Saldo Instantáneo</button>
+                </div>
+            </div>
+
+            <div class="bg-slate-900 border border-slate-800 p-6 rounded-3xl shadow-xl">
+                <h2 class="text-xl font-bold text-white mb-4">💵 Pagar a Mototaxi</h2>
+                <div class="space-y-4">
+                    <input type="text" id="withdraw-id" placeholder="ID del Mototaxi" class="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-blue-500">
+                    <button onclick="buscarOrden()" class="w-full bg-slate-700 hover:bg-slate-600 text-white font-bold py-3 rounded-xl transition">Buscar Orden de Retiro</button>
+                </div>
+
+                <div id="order-result" class="mt-6 bg-slate-800/80 p-4 rounded-xl border border-slate-700 hidden">
+                    <p class="text-xs text-slate-400">Orden Encontrada:</p>
+                    <p class="font-bold text-white mt-1" id="res-moto-name">-</p>
+                    <p class="text-sm text-slate-300">C.I: <span id="res-moto-cedula"></span></p>
+                    <p class="text-sm text-slate-300 mb-2">Banco: <span id="res-moto-banco"></span></p>
+                    
+                    <div class="bg-slate-900 p-3 rounded-lg text-center mb-3">
+                        <span class="text-xs text-slate-500">A pagar:</span>
+                        <h3 class="text-2xl font-bold text-blue-400" id="res-monto">Bs. 0.00</h3>
+                    </div>
+                    
+                    <button id="btn-pagar-orden" class="w-full bg-blue-500 hover:bg-blue-600 text-white font-bold py-3 rounded-lg">
+                        Marcar como Pagada y Borrar
+                    </button>
+                </div>
+            </div>
+        </div>
+
+    </div>
+<!-- MODAL DE ERROR BONITO PARA EL ADMIN -->
+        <div id="modal-error-admin" class="fixed inset-0 bg-slate-950/90 backdrop-blur-sm z-[9999] flex items-center justify-center p-6 opacity-0 pointer-events-none transition-opacity duration-300">
+            <div class="bg-slate-900 border border-red-500/50 w-full max-w-sm p-6 rounded-3xl text-center shadow-[0_0_30px_rgba(239,68,68,0.1)]">
+                <div class="mb-4"><span class="text-5xl">⚠️</span></div>
+                <h4 id="error-admin-titulo" class="text-xl font-bold text-white mb-2">Error</h4>
+                <p id="error-admin-texto" class="text-sm text-slate-400 mb-6 break-words">...</p>
+                <button onclick="cerrarErrorAdmin()" class="w-full bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/50 font-bold py-3 rounded-xl transition">Entendido</button>
+            </div>
+        </div>
+
+    </div>
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-app.js";
+        import { getAuth, signInWithPopup, GoogleAuthProvider, signOut } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-auth.js";
+        
+import { getDatabase, ref, get, update, onValue, remove, runTransaction } from "https://www.gstatic.com/firebasejs/10.8.1/firebase-database.js";
+        const firebaseConfig = {
+            apiKey: "AIzaSyDOgOTD6kBt4270Wet0jZrOof8NwEcTO3U",
+            authDomain: "motoweb-a6fdd.firebaseapp.com",
+            databaseURL: "https://motoweb-a6fdd-default-rtdb.firebaseio.com",
+            projectId: "motoweb-a6fdd",
+            storageBucket: "motoweb-a6fdd.firebasestorage.app",
+            messagingSenderId: "494342979677",
+            appId: "1:494342979677:web:ce1024a05de74662c3cdb4"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getDatabase(app);
+        const auth = getAuth(app);
+        const provider = new GoogleAuthProvider();
+        provider.setCustomParameters({ prompt: 'select_account' });
+
+        window.loginAdminGoogle = async function() {
+            try {
+                const result = await signInWithPopup(auth, provider);
+                // REGLA ESTRICTA: Solo este correo ingresa al panel administrativo
+                if (result.user.email === "luisjose33427041@gmail.com") {
+                    document.getElementById("admin-login-screen").classList.add("hidden");
+                    document.getElementById("admin-dashboard").classList.remove("hidden");
+                } else {
+                    await signOut(auth);
+                    mostrarErrorAdmin("Acceso Denegado", "El correo (" + result.user.email + ") no está autorizado en el sistema.");
+                }
+            } catch (error) {
+                // Aviso bonito con el error exacto de por qué no cargan los correos
+                mostrarErrorAdmin("Error de Google", "Motivo: " + error.message + "\n\nCódigo exacto: " + error.code);
+            }
+        };
+
+        window.mostrarErrorAdmin = function(titulo, mensaje) {
+            const modal = document.getElementById('modal-error-admin');
+            if(modal) {
+                document.getElementById('error-admin-titulo').innerText = titulo;
+                document.getElementById('error-admin-texto').innerText = mensaje;
+                modal.classList.remove('opacity-0', 'pointer-events-none');
+            } else {
+                alert(titulo + ": " + mensaje);
+            }
+        };
+
+        window.cerrarErrorAdmin = function() {
+            const modal = document.getElementById('modal-error-admin');
+            if(modal) modal.classList.add('opacity-0', 'pointer-events-none');
+        };
+
+        // Escucha si ya hay una sesión activa al recargar la página
+        auth.onAuthStateChanged((user) => {
+            if (user && user.email === "luisjose33427041@gmail.com") {
+                document.getElementById("admin-login-screen").classList.add("hidden");
+                document.getElementById("admin-dashboard").classList.remove("hidden");
+            }
+        });
+
+        // --- CARGAR GANANCIAS ADMIN EN TIEMPO REAL ---
+        onValue(ref(db, 'admin/profit'), (snapshot) => {
+            const val = snapshot.val() || 0;
+            document.getElementById('admin-profit').innerText = `Bs. ${Number(val).toFixed(2)}`;
+        });
+// --- CONTROL DE TASA ---
+        onValue(ref(db, 'admin/tasa'), (snapshot) => {
+            const tasa = snapshot.val() || 1;
+            document.getElementById('lbl-admin-tasa-actual').innerText = `Bs. ${tasa}`;
+        });
+
+        window.guardarTasa = async function() {
+            const nuevaTasa = Number(document.getElementById('admin-input-tasa').value);
+            if(!nuevaTasa || nuevaTasa <= 0) return alert("Ingresa una tasa válida mayor a 0.");
+            await update(ref(db), { 'admin/tasa': nuevaTasa });
+            alert("¡Tasa actualizada! Todos los usuarios la verán reflejada automáticamente en sus cuentas.");
+            document.getElementById('admin-input-tasa').value = '';
+        }
+        let cacheUsuarios = {};
+
+        // --- SISTEMA DE LISTAS (ESPERA / APROBADOS) Y CONTEO ---
+        onValue(ref(db, 'users'), (snapshot) => {
+            cacheUsuarios = snapshot.val() || {};
+            let motosActivas = 0;
+            let pasajerosActivos = 0;
+            const listaEsperaContenedor = document.getElementById('lista-espera');
+            const listaAprobadosContenedor = document.getElementById('lista-aprobados');
+            
+            listaEsperaContenedor.innerHTML = '';
+            listaAprobadosContenedor.innerHTML = '';
+
+            for (const phone in cacheUsuarios) {
+                const u = cacheUsuarios[phone];
+                
+                if (u.status === 'aprobado' || u.status === undefined) { 
+                    if (u.rol === 'moto') motosActivas++;
+                    if (u.rol === 'pasajero') pasajerosActivos++;
+                    
+                    const div = document.createElement('div');
+                    div.className = "flex items-center justify-between p-3 border-b border-slate-700/50 rounded-lg";
+                    div.innerHTML = `
+                        <div>
+                            <p class="text-sm font-bold text-white">${u.nombre} <span class="text-[10px] px-2 py-1 ml-2 rounded-full ${u.rol === 'moto' ? 'bg-emerald-900/50 text-emerald-400' : 'bg-blue-900/50 text-blue-400'}">${u.rol.toUpperCase()}</span></p>
+                            <p class="text-xs text-slate-400">Tel: ${u.phone} | C.I: ${u.cedula}</p>
+                        </div>
+                        <span class="text-emerald-500 text-xs font-bold border border-emerald-500/50 bg-emerald-500/10 px-3 py-1 rounded-lg">Aprobado</span>
+                    `;
+                    listaAprobadosContenedor.appendChild(div);
+                } 
+                else if (u.status === 'espera') {
+                    const div = document.createElement('div');
+                    div.className = "flex items-center justify-between p-3 border-b border-slate-700/50 hover:bg-slate-800 rounded-lg transition";
+                    div.innerHTML = `
+                        <div>
+                            <p class="text-sm font-bold text-white">${u.nombre} <span class="text-[10px] px-2 py-1 ml-2 rounded-full ${u.rol === 'moto' ? 'bg-emerald-900/50 text-emerald-400' : 'bg-blue-900/50 text-blue-400'}">${u.rol.toUpperCase()}</span></p>
+                            <p class="text-xs text-slate-400">Tel: ${u.phone} | C.I: ${u.cedula}</p>
+                        </div>
+                        <button onclick="verExpediente('${u.phone}')" class="bg-blue-500 hover:bg-blue-600 text-white text-xs font-bold px-4 py-2 rounded-lg transition shadow-lg">Ver Expediente</button>
+                    `;
+                    listaEsperaContenedor.appendChild(div);
+                }
+            }
+
+            if(listaEsperaContenedor.innerHTML === '') listaEsperaContenedor.innerHTML = '<p class="text-center text-sm text-slate-500 py-4">No hay nuevos registros pendientes.</p>';
+            if(listaAprobadosContenedor.innerHTML === '') listaAprobadosContenedor.innerHTML = '<p class="text-center text-sm text-slate-500 py-4">No hay usuarios aprobados.</p>';
+
+            document.getElementById('count-motos').innerHTML = `${motosActivas} <span class="text-sm text-slate-500">/ 10</span>`;
+            document.getElementById('count-pasajeros').innerHTML = `${pasajerosActivos} <span class="text-sm text-slate-500">/ 150</span>`;
+        });
+
+        // --- SISTEMA DE EXPEDIENTE Y DESCARGA DE FOTOS ---
+        window.verExpediente = function(phone) {
+            const u = cacheUsuarios[phone];
+            if(!u) return;
+            
+            document.getElementById('exp-datos').innerHTML = `
+                <p class="col-span-2"><strong>Nombres y Apellidos:</strong> <span class="text-white">${u.nombre}</span></p>
+                <p><strong>Cédula:</strong> <span class="text-white">${u.cedula}</span></p>
+                <p><strong>Fecha de Nacimiento:</strong> <span class="text-white">${u.fechaNac || 'No indicada'}</span></p>
+                <p><strong>Celular:</strong> <span class="text-white">+${u.phone}</span></p>
+                <p><strong>Banco:</strong> <span class="text-white">${u.banco || 'N/A'}</span></p>
+                <p class="col-span-2"><strong>Rol Solicitado:</strong> <span class="text-emerald-400">${u.rol.toUpperCase()}</span></p>
+            `;
+            
+            // Inyectamos el base64 a las imágenes
+            document.getElementById('exp-foto-cara').src = u.fotoCara || '';
+            document.getElementById('exp-foto-cedula').src = u.fotoCedula || '';
+            
+            // Configurar botón enviando también el código OTP
+            document.getElementById('btn-aprobar-expediente').onclick = () => aprobarYDescargar(phone, u.fotoCara, u.fotoCedula, u.cedula, u.otpRegistro);
+            
+            document.getElementById('modal-expediente').classList.remove('opacity-0', 'pointer-events-none');
+        }
+
+        window.cerrarExpediente = function() {
+            document.getElementById('modal-expediente').classList.add('opacity-0', 'pointer-events-none');
+        }
+
+
+
+        function descargarImagenLocal(base64Data, filename) {
+            if(!base64Data) return;
+            const a = document.createElement('a');
+            a.href = base64Data;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+        }
+
+        window.aprobarYDescargar = async function(phone, fotoCara, fotoCedula, cedula, otpRegistro) {
+            if(!confirm("¿Procesar registro? Se descargarán las fotos y se abrirá WhatsApp para enviar el código al usuario.")) return;
+            
+            // Descarga silenciosa y secuencial
+            descargarImagenLocal(fotoCara, `foto_cara_${cedula}.png`);
+            setTimeout(() => descargarImagenLocal(fotoCedula, `foto_cedula_${cedula}.png`), 800);
+
+            // Borrar fotos de la BD (El status NO se cambia, el usuario se auto-aprueba al validar su OTP)
+            const updates = {};
+            updates[`users/${phone}/fotoCara`] = null; // Borrar de Firebase
+            updates[`users/${phone}/fotoCedula`] = null; // Borrar de Firebase
+
+            await update(ref(db), updates);
+            
+            cerrarExpediente();
+            
+            // Redirigir a WhatsApp automáticamente con el código extraído
+            const msj = `¡Hola! Tu código de operaciones KashMoto es: ${otpRegistro || 'No disponible'}`;
+            window.open(`https://wa.me/${phone}?text=${encodeURIComponent(msj)}`, '_blank');
+        }
+
+      // --- RECARGAR SALDO ---
+        window.recargarSaldo = async function() {
+            const phone = document.getElementById('topup-id').value;
+            const monto = Number(document.getElementById('topup-amount').value);
+
+            if(!phone || !monto || monto <= 0) return alert("Verifica el ID y el monto.");
+
+            const userRef = ref(db, 'users/' + phone);
+            const snap = await get(userRef);
+
+            if(snap.exists()) {
+                const balanceRef = ref(db, `users/${phone}/balance`);
+                // Transacción atómica para sumar saldo
+                const transaction = await runTransaction(balanceRef, (currentBalance) => {
+                    return (currentBalance || 0) + monto;
+                });
+                
+                if (transaction.committed) {
+                    alert(`Recarga exitosa. Nuevo saldo: Bs ${transaction.snapshot.val()}`);
+                    document.getElementById('topup-id').value = '';
+                    document.getElementById('topup-amount').value = '';
+                } else {
+                    alert("Error procesando la recarga en la base de datos.");
+                }
+            } else {
+                alert("Usuario no encontrado.");
+            }
+        }
+
+        // --- ORDEN DE RETIRO ---
+        let currentOrderKey = null;
+
+        window.buscarOrden = async function() {
+            const motoId = document.getElementById('withdraw-id').value;
+            if(!motoId) return;
+
+            const ordersRef = ref(db, 'withdrawal_orders');
+            const snap = await get(ordersRef);
+            let encontrada = null;
+
+            if(snap.exists()) {
+                const ordenes = snap.val();
+                for (const key in ordenes) {
+                    if (ordenes[key].motoPhone === motoId && ordenes[key].status === 'pendiente') {
+                        encontrada = ordenes[key];
+                        currentOrderKey = key;
+                        break; // Toma la primera orden pendiente que consiga
+                    }
+                }
+            }
+
+            if(encontrada) {
+                document.getElementById('res-moto-name').innerText = encontrada.motoName;
+                document.getElementById('res-moto-cedula').innerText = encontrada.cedula;
+                document.getElementById('res-moto-banco').innerText = encontrada.banco;
+                document.getElementById('res-monto').innerText = `Bs. ${Number(encontrada.monto).toFixed(2)}`;
+                
+                document.getElementById('btn-pagar-orden').onclick = () => pagarYBorrarOrden(currentOrderKey);
+                document.getElementById('order-result').classList.remove('hidden');
+            } else {
+                alert("No hay órdenes de retiro pendientes para este ID.");
+                document.getElementById('order-result').classList.add('hidden');
+            }
+        }
+
+        window.pagarYBorrarOrden = async function(orderKey) {
+            if(!confirm("¿Confirmas que ya entregaste el dinero a este mototaxi?")) return;
+            
+            // Borra la orden
+            await remove(ref(db, `withdrawal_orders/${orderKey}`));
+            
+            alert("Orden pagada y eliminada del sistema.");
+            document.getElementById('order-result').classList.add('hidden');
+            document.getElementById('withdraw-id').value = '';
+            currentOrderKey = null;
+        }
+    </script>
+</body>
+</html>
